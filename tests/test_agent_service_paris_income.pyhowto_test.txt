@@ -1,0 +1,55 @@
+テストの実行方法
+
+プロジェクトのルートディレクトリで、以下のコマンドを実行します。
+
+----------------------------------------------
+python tests/test_agent_service_paris_income.py
+----------------------------------------------
+
+評価の手順と出力の確認
+
+テストスクリプトを実行すると、エージェントの動作ログと検証結果がコンソールに出力されます。
+
+1. エージェントの初期化:
+  --- Initializing Agent with collection: [wikipedia_ja] --- というメッセージが表示され、エージェントが wikipedia_ja
+コレクションを指定して初期化されたことを確認します。
+
+2. ユーザー質問:
+  --- User Question: パリ市の平均世帯所得は、フランス全体の平均と比べてどうですか？多いですか？また、日本と比較するとどうですか？
+--- が表示されます。
+
+3. エージェントの実行と検証 (`Agent Execution Start` セクション):
+   * `[Tool Call]`: エージェントがツールを呼び出した場合に表示されます。
+       * tool_name が search_rag_knowledge_base であることを確認してください。
+       * Args に {'query': '...', 'collection_name': 'wikipedia_ja'} のように、collection_name が wikipedia_ja
+         になっていることを確認してください。
+       * -> CORRECT: Target collection used. のメッセージが表示されれば、正しいコレクションが使われたことを示します。
+   * `[Tool Result]`: ツール（search_rag_knowledge_base）の実行結果が表示されます。Qdrant
+     から取得されたドキュメントの内容（質問と回答のペア）が表示されるはずです。関連情報が見つからない場合は [[NO_RAG_RESULT]] や
+     [[NO_RAG_RESULT_LOW_SCORE]] と表示されることがあります。
+   * `[Final Answer]`: エージェントの最終的な回答が表示されます。RAG が成功していれば、Qdrant
+     から取得した情報に基づいて質問に答える内容になっているはずです。
+
+4. 検証結果 (`Verification Results` セクション):
+  テストの最後に、以下の3つの項目について検証結果がまとめられます。
+
+   * ✅ Tool 'search_rag_knowledge_base' was called.：search_rag_knowledge_base ツールが呼び出されたか。
+   * ✅ Correct collection 'wikipedia_ja' was used.：wikipedia_ja コレクションが正しく指定されたか。
+   * ✅ Final answer was received.：最終的な回答が生成されたか。
+
+  全ての項目に ✅ が表示され、最後に 🎉 TEST PASSED: Agent behaved as expected. と表示されればテストは成功です。
+  いずれかの項目に ❌ が表示され、💥 TEST FAILED: Agent did not behave as expected. と表示された場合は、テストが失敗しています。
+
+失敗した場合のデバッグのヒント
+
+* API キーの確認: GEMINI_API_KEY が正しく設定されているか再確認してください。
+* Qdrant の状態:
+   * Qdrant Docker コンテナが稼働しているか (docker ps)。
+   * wikipedia_ja コレクションが Qdrant に存在し、データが投入されているか。Qdrant UI (通常 http://localhost:6333/dashboard)
+     で確認できます。
+* Gemini モデルの挙動: エージェントの Thought ログを詳細に確認し、Gemini モデルが search_rag_knowledge_base
+ ツールを適切に選択し、正しい引数で呼び出す推論をしているかを確認します。特に collection_name='wikipedia_ja'
+ を指定しているか重要です。もしモデルがツールを呼び出さない、または違うコレクションを指定する場合は、システムプロンプトの調整が必要
+ になる可能性があります。
+
+この手順でテストを実行し、結果を確認してください。

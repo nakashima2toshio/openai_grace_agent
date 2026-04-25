@@ -1,0 +1,158 @@
+
+# Agent Service Test Documentation
+================================
+
+## テスト実行結果
+✅ **全14テスト成功** (2024-12-17)
+
+```bash
+pytest tests/test_agent_service.py -v
+============================== 14 passed in 2.61s ==============================
+```
+
+## テスト概要
+`services/agent_service.py`のためのユニットテストおよび統合テストの実装。
+
+## 主要なテストシナリオ
+
+### パリの世帯収入Wikipedia検索シナリオ
+- **質問**: 「パリ市の平均世帯所得は、フランス全体の平均と比べてどうですか？多いですか？また、日本と比較するとどうですか？」
+- **コレクション**: `wikipedia_ja`
+- **モックデータ**:
+  - パリ: 42,000ユーロ（2020年）
+  - フランス全体: 36,000ユーロ（2020年）
+  - 日本: 545万円（約38,000ユーロ、2021年）
+
+## テスト構成
+
+### TestReActAgent (8テスト)
+1. `test_init_without_api_key` - APIキーなしエラー検証
+2. `test_init_with_collections` - 正常初期化検証
+3. `test_setup_session` - セッション設定検証
+4. `test_format_final_answer` - 回答フォーマット検証
+5. `test_execute_turn_simple_answer` - 単純な回答フロー
+6. `test_execute_turn_with_tool_call` - ツール呼び出しフロー
+7. `test_execute_reflection_phase` - リフレクション処理
+8. `test_execute_turn_with_error` - エラー処理フロー
+
+### TestWikipediaSearchScenario (1テスト)
+- `test_paris_income_comparison_scenario` - 完全な統合テスト
+
+### TestHelperFunctions (2テスト)
+- `test_get_available_collections_success` - 成功ケース
+- `test_get_available_collections_error` - エラーケース
+
+### TestEdgeCases (3テスト)
+- `test_empty_collections` - 空のコレクション処理
+- `test_max_turns_exceeded` - 最大ターン数制限
+- `test_malformed_response` - 不正フォーマット処理
+
+## モック戦略の詳細
+
+### カスタムResponseクラス
+```python
+class Response:
+    """Geminiレスポンスのモック（.text属性付き）"""
+    def __init__(self, parts):
+        self.parts = parts
+        # partsから最初のテキストを.text属性として設定
+        self.text = ""
+        for part in parts:
+            if part.text:
+                self.text = part.text
+                break
+```
+
+### TOOLS_MAPのパッチング
+```python
+with patch.dict('services.agent_service.TOOLS_MAP',
+               {'search_rag_knowledge_base': MagicMock(side_effect=RAGToolError("...")),
+                'list_rag_collections': MagicMock()}):
+```
+
+### ジェネレータの戻り値取得
+```python
+try:
+    while True:
+        event = next(gen)
+        events.append(event)
+except StopIteration as e:
+    # ジェネレータのreturn値を取得
+    final = e.value
+```
+
+## テスト実行方法
+
+```bash
+# 全テスト実行
+pytest tests/test_agent_service.py -v
+
+# 特定クラスのみ実行
+pytest tests/test_agent_service.py::TestWikipediaSearchScenario -v
+
+# カバレッジ付き実行
+pytest tests/test_agent_service.py --cov=services.agent_service --cov-report=html
+
+# パラレル実行（高速化）
+pytest tests/test_agent_service.py -n auto
+```
+
+## 最良のテスト戦略の理由
+
+### 1. 分離性（Isolation）
+- 外部サービス依存なし
+- 高速で確定的な実行
+- CI/CDパイプラインに最適
+
+### 2. 現実性（Realism）
+- 実際のユースケース（パリの収入比較）
+- 本番環境のデータ構造を模倣
+- エッジケースの網羅
+
+### 3. 保守性（Maintainability）
+- フィクスチャの再利用
+- 明確な命名規則
+- モジュール化された構造
+
+### 4. 観測可能性（Observability）
+- イベントベースの検証
+- 詳細なログ出力
+- 内部状態の追跡
+
+## テスト品質メトリクス
+
+| 指標 | 値 |
+|------|-----|
+| テスト数 | 14 |
+| 成功率 | 100% |
+| 実行時間 | 約2.6秒 |
+| カバレッジ目標 | 80%以上 |
+
+## 将来の改善提案
+
+### Phase 1: 基本拡張
+- パフォーマンステスト（レスポンス時間測定）
+- プロパティベーステスト（hypothesis使用）
+
+### Phase 2: 統合強化
+- 実Qdrant接続テスト（Docker使用）
+- 実際のGemini API呼び出しテスト（環境変数で切替）
+
+### Phase 3: 高度な検証
+- 並行処理テスト
+- メモリリークテスト
+- ストレステスト（大量データ）
+
+## 注意事項
+
+- テストは完全にモック化されており、外部サービスに依存しない
+- パリの収入データはテスト用の架空データ
+- `wikipedia_ja`コレクションの存在を前提としたテスト設計
+
+## 修正履歴
+
+### 2024-12-17
+- 初期実装
+- Responseクラスにtext属性追加
+- TOOLS_MAPのパッチ方法修正
+- ジェネレータ戻り値の正しい取得方法実装
