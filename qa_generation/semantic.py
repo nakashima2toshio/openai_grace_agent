@@ -25,8 +25,8 @@ class SemanticCoverage:
         self.embedding_client = create_embedding_client(provider="openai")  # [MIGRATION] gemini → openai
         self.embedding_dims = get_embedding_dimensions("openai")  # 3072（openai text-embedding-3-large と同次元）
         # トークンカウント用のLLMクライアント (decode機能がないためtiktokenを併用)
-        # [MIGRATION] provider="gemini" → "anthropic"
-        self.unified_client = create_llm_client(provider="anthropic")
+        # [MIGRATION anthropic→openai] provider="anthropic" → "openai"
+        self.unified_client = create_llm_client(provider="openai")
         self.tokenizer = tiktoken.get_encoding("cl100k_base")  # 強制分割・デコード用にtiktokenを使用
 
         # APIキーの有無フラグ（クライアント作成成功ならTrue）

@@ -48,7 +48,7 @@ class ConfigManager:
     def _setup_logger(self) -> logging.Logger:
         """ロガーの設定"""
         # [MIGRATION] 問題③修正: ロガー名を Gemini_helper → Anthropic_helper に変更
-        logger = logging.getLogger('Anthropic_helper')
+        logger = logging.getLogger('OpenAI_helper')  # [MIGRATION anthropic→openai]
 
         # 既に設定済みの場合はスキップ
         if logger.handlers:
@@ -101,7 +101,11 @@ class ConfigManager:
 
     def _apply_env_overrides(self, config: Dict[str, Any]) -> None:
         """環境変数による設定オーバーライド"""
-        # [MIGRATION] Anthropic API Key を追加
+        # OpenAI API Key（必須）
+        if os.getenv("OPENAI_API_KEY"):
+            config.setdefault("api", {})["openai_api_key"] = os.getenv("OPENAI_API_KEY")
+
+        # [MIGRATION anthropic→openai] Anthropic API Key（後方互換のため残存）
         if os.getenv("ANTHROPIC_API_KEY"):
             config.setdefault("api", {})["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY")
 
@@ -125,17 +129,16 @@ class ConfigManager:
         """デフォルト設定"""
         return {
             "models": {
-                # [MIGRATION] デフォルトモデルを Anthropic Claude に変更
-                # 問題①修正: このキーが存在するため get_config() の第2引数デフォルト値は無効だった
-                "default": "claude-sonnet-4-6",
+                # [MIGRATION anthropic→openai] デフォルトモデルを OpenAI に変更
+                "default": "gpt-4o-mini",
                 "available": [
-                    "claude-opus-4-7",
-                    "claude-opus-4-6",
-                    "claude-sonnet-4-6",
-                    "claude-sonnet-4-5",
-                    "claude-haiku-4-5-20251001",
-                    "gpt-4o-mini",
                     "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4.1",
+                    "gpt-4.1-mini",
+                    "o1-mini",
+                    "claude-sonnet-4-6",        # 後方互換
+                    "claude-haiku-4-5-20251001", # 後方互換
                 ]
             },
             "api": {
@@ -171,8 +174,8 @@ class ConfigManager:
                 "performance_monitoring": True
             },
             "llm": {
-                # [MIGRATION] デフォルトプロバイダーを Anthropic に変更
-                "provider": "anthropic"
+                # [MIGRATION anthropic→openai] デフォルトプロバイダーを OpenAI に変更
+                "provider": "openai"
             }
         }
 

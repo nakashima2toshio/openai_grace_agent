@@ -34,20 +34,19 @@ class SmartQAGenerator:
     [MIGRATION] Gemini API → Anthropic API に移植済み
     """
 
-    def __init__(self, model: str = "claude-sonnet-4-6", api_key: Optional[str] = None):
+    def __init__(self, model: str = "gpt-4o-mini", api_key: Optional[str] = None):
         """
         初期化
 
         Args:
-            model: 使用する Claude モデル（デフォルト: claude-sonnet-4-6）
-            api_key: Anthropic API Key（環境変数 ANTHROPIC_API_KEY から自動取得）
+            model: 使用する OpenAI モデル（デフォルト: gpt-4o-mini）
+            api_key: OpenAI API Key（環境変数 OPENAI_API_KEY から自動取得）
         """
-        # [MIGRATION] "gemini-3-flash" → "claude-sonnet-4-6"
-        # [MIGRATION] genai.Client() → create_llm_client("anthropic")
-        # api_key は create_llm_client 内部で ANTHROPIC_API_KEY を自動参照するため不要
+        # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
+        # api_key は create_llm_client 内部で OPENAI_API_KEY を自動参照するため不要
         self.model = model
-        self.llm = create_llm_client("anthropic", default_model=self.model)
-        logger.info(f"Anthropic API を使用 (model={self.model})")
+        self.llm = create_llm_client("openai", default_model=self.model)
+        logger.info(f"OpenAI API を使用 (model={self.model})")
 
 
     def _generate_content(self, prompt: str, temperature: float = 0.1) -> str:
@@ -394,11 +393,10 @@ def analyze_qa_statistics(results: List[Dict]) -> Dict:
 if __name__ == "__main__":
     import os
 
-    # [MIGRATION] GOOGLE_API_KEY → ANTHROPIC_API_KEY
-    # api_key は create_llm_client 内部で自動参照するため明示不要
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    # [MIGRATION anthropic→openai] OPENAI_API_KEY を使用
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("エラー: ANTHROPIC_API_KEYが設定されていません")
+        print("エラー: OPENAI_API_KEYが設定されていません")
         exit(1)
 
     # ジェネレーター初期化（api_key は内部で自動取得）

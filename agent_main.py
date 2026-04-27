@@ -201,7 +201,7 @@ class UpgradedCLIAgent:
         #           → AnthropicClient (via create_llm_client)
         # Anthropic はステートレス設計のため chat_session を廃止し
         # self._messages リストで会話履歴を自前管理する
-        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+        self.llm = create_llm_client("openai", default_model=self.model_name)  # [MIGRATION anthropic→openai]
         self._messages: List[Dict[str, Any]] = []
 
         # システムプロンプトとツール定義を事前構築
@@ -318,10 +318,9 @@ class UpgradedCLIAgent:
         final_text = ""
 
         for turn_count in range(1, max_turns + 1):
-            # [MIGRATION] LLM 呼び出し
-            # Gemini: current_response = self.chat_session.send_message(...)
-            # Anthropic: generate_with_tools() が (text, tool_calls, stop_reason) を返す
-            text, tool_calls, stop_reason = self.llm.generate_with_tools(
+            # [MIGRATION anthropic→openai]
+            # Anthropic: stop_reason / OpenAI: finish_reason
+            text, tool_calls, finish_reason = self.llm.generate_with_tools(
                 messages=self._messages,
                 tools=self.tools,
                 system=self.system_instruction,
@@ -333,28 +332,33 @@ class UpgradedCLIAgent:
                 logger.info(f"Thought: {text}")
 
             # [MIGRATION] ツール呼び出し検出
-            # Gemini: part.function_call が存在するか走査
-            # Anthropic: stop_reason == "tool_use" で判定
-            if stop_reason != "tool_use" or not tool_calls:
+            # Anthropic: stop_reason == "tool_use"
+            # OpenAI:    finish_reason == "tool_calls"
+            if finish_reason != "tool_calls" or not tool_calls:
                 final_text = text
                 break
 
-            # [MIGRATION] Anthropic: assistant ターンを messages に保存
-            assistant_content: List[Dict[str, Any]] = []
-            if text:
-                assistant_content.append({"type": "text", "text": text})
-            for tc in tool_calls:
-                assistant_content.append({
-                    "type" : "tool_use",
-                    "id"   : tc["id"],
-                    "name" : tc["name"],
-                    "input": tc["input"],
-                })
-            self._messages.append({"role": "assistant", "content": assistant_content})
+            # [MIGRATION] assistant ターンを OpenAI 形式で追記
+            import json as _json
+            self._messages.append({
+                "role"      : "assistant",
+                "content"   : text or None,
+                "tool_calls": [
+                    {
+                        "id"      : tc["id"],
+                        "type"    : "function",
+                        "function": {
+                            "name"     : tc["name"],
+                            "arguments": _json.dumps(tc["input"], ensure_ascii=False),
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+            })
 
-            # [MIGRATION] 複数ツール同時呼び出し対応
-            tool_results_content: List[Dict[str, Any]] = []
-
+            # [MIGRATION] ツール結果を OpenAI 形式で個別追記
+            # Anthropic: 同一 user メッセージにまとめる（1件）
+            # OpenAI:    {"role":"tool","tool_call_id":...} を1件ずつ追記（複数件）
             for tc in tool_calls:
                 tool_name = tc["name"]
                 tool_args = tc["input"]
@@ -381,19 +385,13 @@ class UpgradedCLIAgent:
                 print_colored(f"📝 Tool Result:\n{log_result}", "yellow")
                 logger.info(f"Tool Result: {log_result}")
 
-                # [MIGRATION] Anthropic: tool_result を蓄積
-                # Gemini: types.Part.from_function_response() + chat_session.send_message()
-                # Anthropic: {"type":"tool_result", "tool_use_id":..., "content":...}
-                tool_results_content.append({
-                    "type"       : "tool_result",
-                    "tool_use_id": tool_id,   # LLM が返した id と必ず一致させる
-                    "content"    : str(tool_result),
+                # [MIGRATION] OpenAI: role=tool の個別メッセージとして追記
+                self._messages.append({
+                    "role"        : "tool",
+                    "tool_call_id": tool_id,
+                    "content"     : str(tool_result),
                 })
 
-            # [MIGRATION] 全ツール結果を1件の user メッセージとして追記
-            # Gemini: chat_session.send_message(function_response_part) を1件ずつ呼び出し
-            # Anthropic: 全 tool_result を同一 user メッセージにまとめて追記
-            self._messages.append({"role": "user", "content": tool_results_content})
 
         return final_text
 

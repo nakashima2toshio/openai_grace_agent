@@ -153,7 +153,7 @@ class ReActAgent:
         # [MIGRATION] genai.Client() + chat → AnthropicClient (via create_llm_client)
         # チャットセッション管理は messages リストで自前管理するため、
         # _setup_client() / _create_chat() は廃止。
-        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+        self.llm = create_llm_client("openai", default_model=self.model_name)  # [MIGRATION anthropic→openai]
 
         # [MIGRATION] Anthropic はステートレス設計のため、会話履歴を self._messages で管理する。
         # execute_turn() の先頭でリセットされる。
@@ -321,48 +321,50 @@ class ReActAgent:
             logger.debug(f"ReAct turn {turn_count}/{max_turns}")
 
             # [MIGRATION] LLM 呼び出し
-            # Gemini: current_response = self.chat.send_message(...)
-            # Anthropic: generate_with_tools() が (text, tool_calls, stop_reason) を返す
-            text, tool_calls, stop_reason = self.llm.generate_with_tools(
+            # [MIGRATION anthropic→openai] generate_with_tools() 呼び出しは共通
+            # Anthropic: stop_reason / OpenAI: finish_reason
+            text, tool_calls, finish_reason = self.llm.generate_with_tools(
                 messages   = self._messages,
                 tools      = self.tools,
                 system     = self.system_instruction,
                 max_tokens = get_config("agent.max_tokens", 4096),
             )
 
-            # テキスト部分のログ出力（Thought / 通常テキスト）
+            # テキスト部分のログ出力（変更なし）
             if text and ("Thought:" in text or "考え:" in text):
                 self.thought_log.append(f"🧠 **Thought:**\n{text}")
                 yield {"type": "log", "content": f"🧠 **Thought:**\n{text}"}
 
             # [MIGRATION] ツール呼び出し検出
-            # Gemini: part.function_call が存在するか走査
-            # Anthropic: stop_reason == "tool_use" + tool_calls リストで判定
-            if stop_reason != "tool_use" or not tool_calls:
-                # ツール呼び出しなし → 最終回答
+            # Anthropic: stop_reason == "tool_use"
+            # OpenAI:    finish_reason == "tool_calls"
+            if finish_reason != "tool_calls" or not tool_calls:
                 final_text_from_react = text
                 break
 
-            # --- ツール呼び出し処理 ---
-            # [MIGRATION] Anthropic: アシスタントターンを messages に保存
-            # Gemini では chat オブジェクトが自動管理していたが、
-            # Anthropic ではアシスタントの応答を手動で追記する必要がある。
-            assistant_content: List[Dict[str, Any]] = []
-            if text:
-                assistant_content.append({"type": "text", "text": text})
-            for tc in tool_calls:
-                assistant_content.append({
-                    "type" : "tool_use",
-                    "id"   : tc["id"],
-                    "name" : tc["name"],
-                    "input": tc["input"],
-                })
-            self._messages.append({"role": "assistant", "content": assistant_content})
+            # [MIGRATION] assistant ターンを messages に追記
+            # Anthropic: content にブロックリストを格納
+            # OpenAI:    tool_calls フィールドを含む message 形式
+            import json as _json
+            self._messages.append({
+                "role"      : "assistant",
+                "content"   : text or None,
+                "tool_calls": [
+                    {
+                        "id"      : tc["id"],
+                        "type"    : "function",
+                        "function": {
+                            "name"     : tc["name"],
+                            "arguments": _json.dumps(tc["input"], ensure_ascii=False),
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+            })
 
-            # [MIGRATION] 複数ツールの同時呼び出しに対応
-            # Gemini では1件ずつ処理していたが、Anthropic では全件を同一 user メッセージにまとめる
-            tool_results_content: List[Dict[str, Any]] = []
-
+            # [MIGRATION] ツール結果を OpenAI 形式で追記
+            # Anthropic: tool_result を同一 user メッセージにまとめる（1件）
+            # OpenAI:    tool ごとに {"role":"tool"} メッセージを個別に追記（複数件）
             for tc in tool_calls:
                 tool_name = tc["name"]
                 tool_args = tc["input"]
@@ -412,20 +414,16 @@ class ReActAgent:
                         agent_response = "(Search Failed)"
                     )
 
-                # [MIGRATION] Anthropic: tool_result を tool_results_content に蓄積
-                # Gemini: types.Part.from_function_response() + chat.send_message(part)
-                # Anthropic: {"type":"tool_result", "tool_use_id":..., "content":...}
-                tool_results_content.append({
-                    "type"       : "tool_result",
-                    "tool_use_id": tool_id,          # LLM が返した id と必ず一致させる
-                    "content"    : str(tool_result),
+                # [MIGRATION] OpenAI: tool_call_id 付きの tool メッセージとして個別追記
+                # Anthropic: {"type":"tool_result","tool_use_id":id,"content":...} を user にまとめ
+                # OpenAI:    {"role":"tool","tool_call_id":id,"content":...} を1件ずつ追記
+                self._messages.append({
+                    "role"        : "tool",
+                    "tool_call_id": tool_id,
+                    "content"     : str(tool_result),
                 })
-
-            # [MIGRATION] 全ツール結果を1件の user メッセージとして追記
-            # Gemini: chat.send_message(function_response_part) を1件ずつ呼び出し
-            # Anthropic: 全 tool_result を同一 user メッセージにまとめて追記
-            self._messages.append({"role": "user", "content": tool_results_content})
             # → 次のループで generate_with_tools() が更新済み messages を受け取る
+
 
         yield {"type": "final_text", "content": final_text_from_react}
 
@@ -452,7 +450,7 @@ class ReActAgent:
             # generate_with_tools(tools=[]) を使うことで、self._messages を全件渡し、
             # Gemini の chat.send_message() と同様に会話コンテキストを維持する。
             self._messages.append({"role": "user", "content": reflection_msg})
-            reflection_raw, _, _ = self.llm.generate_with_tools(
+            reflection_raw, _, finish_reason = self.llm.generate_with_tools(
                 messages   = self._messages,
                 tools      = [],                # Tool Use なし（Reflection ではツール不要）
                 system     = self.system_instruction,

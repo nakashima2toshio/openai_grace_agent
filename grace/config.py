@@ -56,10 +56,10 @@ logger = logging.getLogger(__name__)
 
 class LLMConfig(BaseModel):
     """LLM設定"""
-    # [MIGRATION] provider: "gemini" → "anthropic"
-    # [MIGRATION] model: "gemini-3-flash-preview" → "claude-sonnet-4-6"（問題①修正）
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    # [MIGRATION anthropic→openai] provider: "anthropic" → "openai"
+    # [MIGRATION anthropic→openai] model: "claude-sonnet-4-6" → "gpt-4o-mini"（デフォルト）
+    provider: str = "openai"
+    model: str = "gpt-4o-mini"
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 30

@@ -332,7 +332,8 @@ class ResponseProcessor:
 # ==================================================
 
 # デフォルトプロバイダー（環境変数で設定可能）
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # "gemini" or "openai"
+# [MIGRATION anthropic→openai] デフォルトを "openai" に変更
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # "openai" | "anthropic" | "gemini"
 
 
 class UnifiedLLMClient:
@@ -509,8 +510,7 @@ __all__ = [
     'ResponseProcessor',
     'OpenAIClient',
 
-    # [MIGRATION] Anthropic 移植: AnthropicClient を追加
-    'AnthropicClient',           # [MIGRATION 追加] migration資料 ⑩
+    'AnthropicClient',           # 後方互換のため残存
     'GeminiLLMClient',           # 後方互換のため残存
 
     # Gemini 3 Migration: 統合クライアント

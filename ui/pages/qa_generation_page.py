@@ -108,7 +108,7 @@ def show_qa_generation_page():
                 max_value=48,
                 value=24,  # Gemini APIレート制限対策のためデフォルトを24に設定
                 step=1,
-                help="並列処理するワーカー数（Gemini推奨: 24）",
+                help="並列処理するワーカー数",
             )
         else:
             celery_workers = 1
@@ -168,8 +168,10 @@ def show_qa_generation_page():
         qa_model = st.selectbox(
             "モデル",
             options=ModelConfig.AVAILABLE_MODELS,
-            index=ModelConfig.AVAILABLE_MODELS.index("gemini-2.0-flash") if "gemini-2.0-flash" in ModelConfig.AVAILABLE_MODELS else 0,
-            help="Q/A生成に使用するモデル（Gemini API学習用）",
+            # [MIGRATION anthropic→openai] DEFAULT_MODEL を使用（gpt-4o-mini）
+            index=ModelConfig.AVAILABLE_MODELS.index(ModelConfig.DEFAULT_MODEL)
+                  if ModelConfig.DEFAULT_MODEL in ModelConfig.AVAILABLE_MODELS else 0,
+            help="Q/A生成に使用するモデル",
         )
 
         analyze_coverage = st.checkbox(

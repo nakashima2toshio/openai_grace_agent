@@ -1,37 +1,36 @@
 # config.yml
-# [MIGRATION] 2026-04-20 Gemini API → Anthropic API 移植対応
+# [MIGRATION] 2026-04-25 Anthropic API → OpenAI API 移植対応
 # 変更概要:
-#   - models.default:           "gemini-3-flash-preview" → "claude-sonnet-4-6"
-#   - models.available:         Gemini モデル → Claude モデル
-#   - provider.default_llm:     "gemini" → "anthropic"
-#   - provider.default_embedding: "gemini" → "openai"
-#   - provider.openai:          text-embedding-3-large (3072次元) に変更
-#   - anthropic セクション:     新規追加
-#   - gemini セクション:        後方互換のため残存（Legacy）
-#   - qdrant.vector_dims:       両プロバイダーとも 3072 のまま維持（Qdrant 互換）
+#   - models.default:           "claude-sonnet-4-6" → "gpt-4o-mini"
+#   - models.available:         Claude モデル → OpenAI モデル
+#   - provider.default_llm:     "anthropic" → "openai"
+#   - provider.default_embedding: "openai" のまま継続（変更不要）
+#   - openai セクション:        新規追加（LLM設定）
+#   - anthropic セクション:     後方互換のため残存（Legacy）
+#   - embedding:                OpenAI text-embedding-3-large のまま継続（変更不要）
+#   - qdrant:                   同一サーバー・コレクション継続（変更不要）
 
 # =====================================================
 # LLM モデル設定
 # =====================================================
 models:
-  # [MIGRATION] "gemini-3-flash-preview" → "claude-sonnet-4-6"
-  default: "claude-sonnet-4-6"
+  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
+  default: "gpt-4o-mini"
   available:
-    - "claude-opus-4-7"           # 最新 Opus（最高性能・複雑タスク向け）
-    - "claude-opus-4-6"           # Opus 前世代（後方互換）
-    - "claude-sonnet-4-6"         # 最新 Sonnet → デフォルト推奨
-    - "claude-sonnet-4-5"         # Sonnet 前世代（後方互換）
-    - "claude-haiku-4-5-20251001" # 高速・低コスト
+    - "gpt-4o"                    # 最高性能・複雑タスク向け
+    - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
+    - "gpt-4.1"                   # GPT-4.1（最新）
+    - "gpt-4.1-mini"              # GPT-4.1 軽量版
+    - "o1-mini"                   # 推論特化
 
   categories:
-    # [MIGRATION] Gemini カテゴリ → Claude カテゴリ
-    powerful:  ["claude-opus-4-7", "claude-opus-4-6"]         # 高性能・複雑推論
-    balanced:  ["claude-sonnet-4-6", "claude-sonnet-4-5"]     # バランス型（推奨）
-    fast:      ["claude-haiku-4-5-20251001"]                   # 高速・低コスト
-    # Gemini カテゴリ（後方互換のため残存 - 削除可）
-    legacy_gemini:
-      thinking: ["gemini-3-pro-preview", "gemini-2.5-flash-preview"]
-      fast:     ["gemini-2.0-flash", "gemini-1.5-flash"]
+    powerful:  ["gpt-4o", "gpt-4.1"]
+    balanced:  ["gpt-4o-mini", "gpt-4.1-mini"]  # デフォルト推奨
+    reasoning: ["o1-mini"]
+    # Claude カテゴリ（後方互換のため残存 - 削除可）
+    legacy_claude:
+      balanced: ["claude-sonnet-4-6"]
+      fast:     ["claude-haiku-4-5-20251001"]
 
 samples:
   images:
@@ -81,7 +80,54 @@ model_pricing:
     output: 0.0
 
 # =====================================================
-# [MIGRATION 新規追加] Anthropic API Configuration
+# [MIGRATION 新規追加] OpenAI LLM Configuration
+# =====================================================
+openai:
+  # LLM設定
+  default_model: "gpt-4o-mini"
+  available_models:
+    - "gpt-4o"                    # 最高性能・複雑タスク向け
+    - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
+    - "gpt-4.1"                   # GPT-4.1（最新）
+    - "gpt-4.1-mini"              # GPT-4.1 軽量版
+    - "o1-mini"                   # 推論特化
+
+  # 生成パラメータ
+  generation:
+    default_temperature: 0.7
+    default_max_tokens: 4096
+
+  # 料金（$/1M tokens）
+  pricing:
+    gpt-4o:
+      input: 2.50
+      output: 10.00
+    gpt-4o-mini:
+      input: 0.15
+      output: 0.60
+    gpt-4.1:
+      input: 2.00
+      output: 8.00
+    gpt-4.1-mini:
+      input: 0.40
+      output: 1.60
+    o1-mini:
+      input: 1.10
+      output: 4.40
+
+  # レート制限（目安）
+  rate_limits:
+    requests_per_minute: 3500
+    tokens_per_minute: 200000
+
+  # ReAct Agent 設定
+  agent:
+    max_turns: 10
+    max_tokens: 4096
+    reflection_max_tokens: 2048
+
+# =====================================================
+# [Legacy] Anthropic API Configuration（後方互換）
 # =====================================================
 anthropic:
   # LLM設定
@@ -216,16 +262,21 @@ gemini:
 # Provider Configuration
 # =====================================================
 provider:
-  # [MIGRATION] デフォルトプロバイダーを Anthropic / OpenAI に変更
-  default_llm: "anthropic"         # "gemini" → "anthropic"
-  default_embedding: "openai"      # "gemini" → "openai"
+  # [MIGRATION anthropic→openai] デフォルトプロバイダーを OpenAI に変更
+  default_llm: "openai"            # "anthropic" → "openai"
+  default_embedding: "openai"      # 変更なし（継続）
 
-  # [MIGRATION] OpenAI Embedding 設定更新
+  # OpenAI 設定（LLM + Embedding）
   openai:
-    embedding_model: "text-embedding-3-large"   # "text-embedding-3-small" → "text-embedding-3-large"
-    embedding_dims: 3072                         # 1536 → 3072（Gemini と同次元）
+    llm_model: "gpt-4o-mini"                    # デフォルトモデル
+    embedding_model: "text-embedding-3-large"   # 変更なし
+    embedding_dims: 3072                         # 変更なし
 
-  # Gemini設定（Legacy: 後方互換のため残存）
+  # Anthropic設定（Legacy: 後方互換のため残存）
+  anthropic:
+    llm_model: "claude-sonnet-4-6"
+
+  # Gemini設定（Legacy）
   gemini:
     embedding_model: "gemini-embedding-001"
     embedding_dims: 3072
@@ -277,9 +328,9 @@ logging:
 # LLM Provider Switch (環境変数で上書き可能)
 # =====================================================
 llm:
-  # [MIGRATION] "gemini" → "anthropic"
-  # 環境変数: LLM_PROVIDER=anthropic
-  provider: "anthropic"
+  # [MIGRATION anthropic→openai] "anthropic" → "openai"
+  # 環境変数: LLM_PROVIDER=openai
+  provider: "openai"
 
 embedding:
   # [MIGRATION] "gemini" → "openai"

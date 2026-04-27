@@ -316,7 +316,7 @@ class ReasoningTool(BaseTool):
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
         # [MIGRATION] genai.Client() → AnthropicClient (via create_llm_client)
-        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+        self.llm = create_llm_client("openai", default_model=self.model_name)   # [MIGRATION anthropic→openai]
 
     def execute(
             self,

@@ -136,10 +136,10 @@ class CeleryConfig:
 
     # レート制限
     task_annotations = {
-        # [MIGRATION] Gemini API用 → Anthropic / LLM API用
-        # Anthropic claude-sonnet-4-6: rpm=2000, tpm=1600000 → rate_limit は余裕あり
+        # [MIGRATION anthropic→openai] OpenAI API用
+        # gpt-4o-mini: rpm=500, tpm=200000
         'generate_qa_for_chunk': {
-            'rate_limit': '60/m',  # 分あたり60リクエスト（Anthropic でも同じ制限を維持）
+            'rate_limit': '60/m',  # 分あたり60リクエスト
         },
         # OpenAI API用（既存）
         'tasks.process_chunk_task': {
@@ -374,9 +374,9 @@ else:
 __all__ = [
     'app',
     'CeleryConfig',
-    'ANTHROPIC_CONFIG',       # [MIGRATION 新規追加]
-    'GEMINI_CONFIG',          # 後方互換のため残存
-    'OPENAI_CONFIG',
+    'OPENAI_CONFIG',           # [MIGRATION anthropic→openai] メインプロバイダー
+    'ANTHROPIC_CONFIG',        # 後方互換のため残存
+    'GEMINI_CONFIG',           # 後方互換のため残存
     'SMART_GENERATION_CONFIG',
     'LOGGING_CONFIG'
 ]
@@ -408,11 +408,20 @@ if __name__ == '__main__':
     for q in CeleryConfig.task_queues:
         print(f"  - {q.name}")
 
-    print("\n[Anthropic Configuration]")  # [MIGRATION 新規追加]
+    print("\n[OpenAI Configuration]")  # [MIGRATION anthropic→openai] メインプロバイダー
+    if OPENAI_CONFIG['api_key']:
+        print("✅ OPENAI_API_KEY設定済み")
+    else:
+        print("❌ OPENAI_API_KEY未設定")
+
+    for model, config in OPENAI_CONFIG['models'].items():
+        print(f"  {model}: RPM={config['rpm_limit']}, TPM={config['tpm_limit']}")
+
+    print("\n[Anthropic Configuration]（後方互換用）")
     if ANTHROPIC_CONFIG['api_key']:
         print("✅ ANTHROPIC_API_KEY設定済み")
     else:
-        print("❌ ANTHROPIC_API_KEY未設定")
+        print("⚠️ ANTHROPIC_API_KEY未設定（openai_grace_agent では不要）")
 
     for model, config in ANTHROPIC_CONFIG['models'].items():
         print(f"  {model}: RPM={config['rpm_limit']}, TPM={config['tpm_limit']}")
@@ -421,18 +430,9 @@ if __name__ == '__main__':
     if GEMINI_CONFIG['api_key']:
         print("✅ GOOGLE_API_KEY設定済み")
     else:
-        print("⚠️ GOOGLE_API_KEY未設定（anthropic_grace_agent では不要）")
+        print("⚠️ GOOGLE_API_KEY未設定（openai_grace_agent では不要）")
 
     for model, config in GEMINI_CONFIG['models'].items():
-        print(f"  {model}: RPM={config['rpm_limit']}, TPM={config['tpm_limit']}")
-
-    print("\n[OpenAI Configuration]")
-    if OPENAI_CONFIG['api_key']:
-        print("✅ OPENAI_API_KEY設定済み")
-    else:
-        print("⚠️ OPENAI_API_KEY未設定")
-
-    for model, config in OPENAI_CONFIG['models'].items():
         print(f"  {model}: RPM={config['rpm_limit']}, TPM={config['tpm_limit']}")
 
     print("\n[スマート生成設定]")

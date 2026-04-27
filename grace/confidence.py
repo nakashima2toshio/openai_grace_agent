@@ -454,7 +454,7 @@ class LLMSelfEvaluator:
         self.model_name = model_name or self.config.llm.model
 
         # [MIGRATION] genai.Client() → AnthropicClient (via create_llm_client)
-        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+        self.llm = create_llm_client("openai", default_model=self.model_name)   # [MIGRATION anthropic→openai]
 
         logger.info(f"LLMSelfEvaluator initialized with model: {self.model_name}")
 
@@ -722,7 +722,7 @@ class QueryCoverageCalculator:
         self.model_name = model_name or self.config.llm.model
 
         # [MIGRATION] genai.Client() → AnthropicClient (via create_llm_client)
-        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+        self.llm = create_llm_client("openai", default_model=self.model_name)   # [MIGRATION anthropic→openai]
 
         logger.info("QueryCoverageCalculator initialized")
 
