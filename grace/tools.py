@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from qdrant_client import QdrantClient
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # ReasoningTool の LLM 呼び出しは helper_llm 経由の AnthropicClient に置換
-from helper_llm import create_llm_client
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
 # Import wrappers for robust execution
 from qdrant_client_wrapper import search_collection, embed_query_unified, embed_sparse_query_unified

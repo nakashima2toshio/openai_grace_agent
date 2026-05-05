@@ -1,4 +1,8 @@
 # Agent RAG (Gemini) プロジェクト
+## (1) Agent
+![lp_image.png](assets/lp_img.png)
+## (2) Chunking
+![chunk_image.png](assets/img_csv_text_to_chunks_text_csv.png)
 
 > **はじめにお読みください**
 >
@@ -16,7 +20,6 @@
 
 画面： agent_rag.py
 
-![image.png](assets/image.png)
 
 個々のドキュメントは、機能ディレクトリー/doc/*.md を参照あれ。
 

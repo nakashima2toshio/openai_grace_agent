@@ -207,6 +207,9 @@ class OpenAIClient(LLMClient):
     def generate_content(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         model = model or self.default_model
         messages = [{"role": "user", "content": prompt}]
+        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
         return response.choices[0].message.content
 
@@ -219,6 +222,9 @@ class OpenAIClient(LLMClient):
     ) -> BaseModel:
         model = model or self.default_model
         messages = [{"role": "user", "content": prompt}]
+        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.beta.chat.completions.parse(
             model=model,
             messages=messages,

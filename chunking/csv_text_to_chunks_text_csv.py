@@ -28,19 +28,18 @@ Usage:　chunking.csv_text_to_chunks_text_csv　はceleryを利用していな�
 # ./start_celery.sh restart -w 4 --flower
 
 # CSVファイル → チャンクCSV
-# 走行時にエラーが出た場合は：
-# Gemini は、limit制限が厳しいので、block-sizeとmax_output_tokens を調整してください。
-python -m chunking.csv_text_to_chunks_text_csv \
+# [MIGRATION] Gemini → OpenAI。--model は gpt-5.4-mini を使用してください。
+uv run python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/cc_news_1per.csv \
   --output chunks_output \
-  --model gemini-3-flash-preview \
+  --model gpt-5.4-mini \
   --workers 8 \
   --block-size 500
 
 python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/wikipedia_ja_1per.csv \
   --output chunks_output \
-  --model gemini-3-flash-preview \
+  --model gpt-5.4-mini \
   --workers 8 \
 
 # 出力例:
@@ -48,16 +47,24 @@ python -m chunking.csv_text_to_chunks_text_csv \
 # chunks_output/wikipedia_ja_5per_chunks_20260207_123456_simple.csv （シンプル版、Textのみ）
 
 # ----------------------------------------------
-# テキストファイル → チャンクCSV
-python -m chunking.csv_text_to_chunks_text_csv.py \
-  --input-file ./data/document.txt \
-  --output chunks_output \
-  --model gemini-3-flash-preview \
+# Step1: テキストファイル → チャンク分割、CSV
+# ----------------------------------------------
+uv run python -m chunking.csv_text_to_chunks_text_csv \
+  --input-file OUTPUT/cc_news_1per.csv \
+  --output output_chunked \
+  --model gpt-5.4-mini \
   --workers 8
 
-# デフォルト出力ディレクトリ使用
-python -m chunking.csv_text_to_chunks_text_csv.py \
-  --input-file ./data/document.txt
+# ----------------------------------------------
+# tep2: Q/A生成 + Qdrant登録
+# ----------------------------------------------
+uv run python qa_qdrant/make_qa_register_qdrant.py \
+  --input-file output_chunked/cc_news_1per_chunks.csv \
+  --collection cc_news_1per \
+  --model gpt-5.4-mini \
+  --concurrency 8 \
+  --recreate
+
   # → chunks_output/document_chunks_20250118_123456.csv が生成される
   # → chunks_output/document_chunks_20250118_123456_simple.csv （シンプル版）も同時生成
 """
@@ -383,8 +390,11 @@ def save_chunks_as_csv(
     logger.info("=" * 60)
     logger.info(f"  ファイル: {output_file}")
     logger.info(f"  チャンク数: {len(df)}")
-    logger.info(f"  総トークン数: {df['tokens'].sum()}")
-    logger.info(f"  平均トークン数: {df['tokens'].mean():.1f}")
+    if 'tokens' in df.columns and len(df) > 0:
+        logger.info(f"  総トークン数: {df['tokens'].sum()}")
+        logger.info(f"  平均トークン数: {df['tokens'].mean():.1f}")
+    else:
+        logger.warning("  ⚠️ チャンクが0件です。APIキーを確認してください。")
     logger.info(f"  改行正規化: {'有効' if normalize_whitespace else '無効'}")
     logger.info("=" * 60)
 
@@ -427,43 +437,45 @@ def save_chunks_as_text(chunks: List[str], output_file: str) -> str:
 def generate_output_filename(
         input_file: str,
         output_dir: str,
-        dataset_type: str = "custom"
+        dataset_type: str = "custom",
+        use_timestamp: bool = False
 ) -> str:
     """
     入力ファイル名から出力ファイル名を自動生成
 
     Args:
-        input_file: 入力ファイルパス
-        output_dir: 出力ディレクトリ
-        dataset_type: データセット種別（ファイル名に使用）
+        input_file:    入力ファイルパス
+        output_dir:    出力ディレクトリ
+        dataset_type:  データセット種別（後方互換のため残す）
+        use_timestamp: True の場合タイムスタンプを付与（デフォルト: False）
+                       後続バッチとの連携のため、デフォルトは固定ファイル名
 
     Returns:
         出力ファイルの絶対パス
 
     Examples:
-        generate_output_filename("data/input.txt", "chunks_output", "custom")
-        'chunks_output/input_chunks_20250118_123456.csv'
+        # デフォルト（固定ファイル名）← バッチ連携用
+        generate_output_filename("OUTPUT/cc_news_1per.csv", "output_chunked")
+        → 'output_chunked/cc_news_1per_chunks.csv'
 
-        generate_output_filename("data/cc_news.csv", "chunks_output", "cc_news")
-        'chunks_output/cc_news_chunks_20250118_123456.csv'
+        # タイムスタンプあり（--timestamp オプション指定時）
+        generate_output_filename("OUTPUT/cc_news_1per.csv", "output_chunked", use_timestamp=True)
+        → 'output_chunked/cc_news_1per_chunks_20260505_004819.csv'
     """
-    from datetime import datetime
     import os
 
-    # 入力ファイル名を取得
     input_path = Path(input_file)
-    base_name = input_path.stem
+    base_name = input_path.stem  # 例: cc_news_1per
 
-    # タイムスタンプを生成
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if use_timestamp:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{base_name}_chunks_{timestamp}.csv"
+    else:
+        # 固定ファイル名（後続バッチとの連携用）
+        output_filename = f"{base_name}_chunks.csv"
 
-    # 出力ファイル名を生成
-    output_filename = f"{base_name}_chunks_{timestamp}.csv"
-
-    # 出力ディレクトリを作成
     os.makedirs(output_dir, exist_ok=True)
-
-    # 絶対パスを返す
     output_path = os.path.join(output_dir, output_filename)
     return output_path
 
@@ -490,7 +502,7 @@ def _split_sentences_simple(text: str) -> List[str]:
 
 async def chunks_all_async(
         text: str,
-        model: str = "gemini-3-flash-preview",
+        model: str = "gpt-5.4-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
         max_workers: int = 8,
         block_size: int = 1000,  # ✅ 2000→1000に変更（MAX_TOKENS対策）
         checkpoint_manager: Optional[CheckpointManager] = None,
@@ -501,9 +513,10 @@ async def chunks_all_async(
     """テキストを3段階で意味的にチャンク化"""
     import os
 
-    api_key = os.getenv("GOOGLE_API_KEY")
+    # [MIGRATION] GOOGLE_API_KEY → OPENAI_API_KEY
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError("GOOGLE_API_KEYが設定されていません")
+        raise ValueError("OPENAI_API_KEYが設定されていません")
 
     client = AsyncAPIClient(
         api_key=api_key,
@@ -822,6 +835,14 @@ async def main():
         default="chunks_output",
         help="出力ディレクトリ（デフォルト: chunks_output）"
     )
+    parser.add_argument(
+        "--timestamp",
+        action="store_true",
+        default=False,
+        help="出力ファイル名にタイムスタンプを付与する（デフォルト: 固定ファイル名）\n"
+             "  固定(デフォルト): cc_news_1per_chunks.csv\n"
+             "  タイムスタンプ:   cc_news_1per_chunks_20260505_004819.csv"
+    )
 
     # ================================================================
     # モデル・処理パラメータ（✅ 短縮形削除）
@@ -829,7 +850,7 @@ async def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gemini-3-flash-preview",  # ✅ デフォルト値を統一
+        default="gpt-5.4-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
         help="使用するLLMモデル"
     )
     parser.add_argument(
@@ -923,7 +944,8 @@ async def main():
     output_file = generate_output_filename(
         args.input_file,
         args.output,
-        dataset_type
+        dataset_type,
+        use_timestamp=args.timestamp
     )
 
     logger.info(f"📝 出力ファイル: {output_file}")

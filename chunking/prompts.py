@@ -1,6 +1,7 @@
 # prompts.py
 """
-Gemini API用プロンプト定義（改修版）
+OpenAI API用プロンプト定義（改修版）
+[MIGRATION] Gemini API → OpenAI API
 """
 
 # プロンプト 1: 階層分割（改修版）

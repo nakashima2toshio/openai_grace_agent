@@ -54,7 +54,7 @@ from services.token_service import TokenManager
 from openai import OpenAI
 
 # Gemini 3 Migration: 抽象化レイヤー
-from helper_llm import (
+from helper.helper_llm import (  # [FIXED] helper_llm → helper.helper_llm
     create_llm_client as create_unified_llm_client,
     LLMClient,
     GeminiClient as GeminiLLMClient,

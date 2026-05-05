@@ -22,7 +22,7 @@ import logging
 from typing import Dict, List, Optional
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient を helper_llm 経由で使用
-from helper_llm import create_llm_client
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class SmartQAGenerator:
             prompt=prompt,
             model=self.model,
             temperature=temperature,
-            max_tokens=4096,
+            max_completion_tokens=4096,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
         )
 
 

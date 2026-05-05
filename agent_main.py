@@ -21,7 +21,7 @@ import uuid
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient を helper_llm 経由で使用（agent_service.py と同パターン）
-from helper_llm import create_llm_client
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
 from dotenv import load_dotenv
 import logging

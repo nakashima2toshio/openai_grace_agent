@@ -8,7 +8,7 @@ from qdrant_client_wrapper import get_qdrant_client
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # [MIGRATION] AgentConfig, GeminiConfig を削除（Anthropic版では不要）
 # [MIGRATION] AnthropicClient を helper_llm 経由で使用
-from helper_llm import create_llm_client
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 from agent_tools import (
     search_rag_knowledge_base,
     list_rag_collections,

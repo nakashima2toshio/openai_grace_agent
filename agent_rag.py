@@ -1,58 +1,60 @@
 #!/usr/bin/env python
-"""
-# GCP サーバーで実行
-ssh -i ~/.ssh/gcp_key_v2 nakashima@34.84.198.115
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
-
-cd /path/to/project
-uv venv
-uv pip install -r requirements.txt
-
-# systemd の ExecStart を uv run に変更
-# 変更前: ExecStart=/path/.venv/bin/streamlit run agent_rag.py
-# 変更後: ExecStart=/usr/local/bin/uv run streamlit run agent_rag.py
-
-sudo systemctl daemon-reload
-sudo systemctl restart streamlit-app
-"""
+# ---------------------------------------------------
+# # GCP サーバーで実行
+# ---------------------------------------------------
+# ssh -i ~/.ssh/gcp_key_v2 nakashima@34.84.198.115
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+# source ~/.bashrc
+#
+# cd /path/to/project
+# uv venv
+# uv pip install -r requirements.txt
+#
+# # systemd の ExecStart を uv run に変更
+# # 変更前: ExecStart=/path/.venv/bin/streamlit run agent_rag.py
+# # 変更後: ExecStart=/usr/local/bin/uv run streamlit run agent_rag.py
+#
+# sudo systemctl daemon-reload
+# sudo systemctl restart streamlit-app
+#
 # -*- coding: utf-8 -*-
-"""
-uv run streamlit run agent_rag.py --server.port 8501
-streamlit run agent_rag.py --server.port 8501
-Agent RAG Q&A生成・Qdrant管理 Streamlit アプリケーション
-sudo systemctl restart streamlit-app
+#
+# uv run streamlit run agent_rag.py --server.port 8501
+# streamlit run agent_rag.py --server.port 8501
+# Agent RAG Q&A生成・Qdrant管理 Streamlit アプリケーション
+# sudo systemctl restart streamlit-app
+# ---------------------------------------------------
+# 実行コマンド：
+# ---------------------------------------------------
+# ./start_celery.sh restart -w 4 --flower
+# uv run streamlit run agent_rag.py --server.port 8501
+# ---------------------------------------------------
+# 詳細な仕様、実行方法、アーキテクチャについては、プロジェクトルートの `README.md` を参照してください。
+#
+# [リモートサーバー管理 (GCP)]:
+# ssh -i ~/.ssh/gcp_key_v2 nakashima@34.84.198.115
+#
+# # 設定ファイルの変更を反映
+# sudo systemctl daemon-reload
+#
+# # サーバー起動時に自動で立ち上がるように設定
+# sudo systemctl enable streamlit-app
+#
+# # 今すぐ起動する
+# sudo systemctl start streamlit-app
+#
+# # 停止する
+# sudo systemctl stop streamlit-app
+#
+# # 再起動する
+# sudo systemctl restart streamlit-app
+#
+# # 状態確認
+# sudo systemctl status streamlit-app
+#
+# # ログ確認
+# journalctl -u streamlit-app -f
 
-実行コマンド：
-# ----------- ./start_celery.sh restart -w 4 --flower
-streamlit run agent_rag.py --server.port 8501
-
-詳細な仕様、実行方法、アーキテクチャについては、プロジェクトルートの `README.md` を参照してください。
-
-[リモートサーバー管理 (GCP)]:
-ssh -i ~/.ssh/gcp_key_v2 nakashima@34.84.198.115
-
-# 設定ファイルの変更を反映
-sudo systemctl daemon-reload
-
-# サーバー起動時に自動で立ち上がるように設定
-sudo systemctl enable streamlit-app
-
-# 今すぐ起動する
-sudo systemctl start streamlit-app
-
-# 停止する
-sudo systemctl stop streamlit-app
-
-# 再起動する
-sudo systemctl restart streamlit-app
-
-# 状態確認
-sudo systemctl status streamlit-app
-
-# ログ確認
-journalctl -u streamlit-app -f
-"""
 
 import streamlit as st
 

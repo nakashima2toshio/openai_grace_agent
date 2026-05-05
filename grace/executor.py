@@ -53,6 +53,13 @@ except ImportError:
     LEGACY_AGENT_AVAILABLE = False
 # ================================
 
+# [MIGRATION] create_llm_client を追加（_check_rag_relevance_with_llm で使用）
+try:
+    from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
+    _LLM_CLIENT_AVAILABLE = True
+except ImportError:
+    _LLM_CLIENT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -798,26 +805,25 @@ class Executor:
         )
 
         try:
-            from google import genai
-            from google.genai import types
+            # [MIGRATION] from google import genai / types → create_llm_client("openai")
+            # Gemini: genai.Client().models.generate_content() + GenerateContentConfig + AFC無効化
+            # OpenAI:  create_llm_client("openai").generate_content() で代替
             import time as _time
 
-            client = genai.Client()
+            if not _LLM_CLIENT_AVAILABLE:
+                raise ImportError("helper_llm.create_llm_client が利用できません")
+
+            llm = create_llm_client("openai", default_model=self.config.llm.model)
             t0 = _time.time()
 
-            response = client.models.generate_content(
-                model=self.config.llm.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=5,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
-            )
+            # temperature=0.0, max_tokens=5 で YES/NO のみ返させる
+            answer = llm.generate_content(
+                prompt=prompt,
+                temperature=0.0,
+                max_tokens=5,
+            ).strip().upper()
 
             elapsed = _time.time() - t0
-            answer = (response.text or "").strip().upper() if response else ""
-
             is_relevant = "YES" in answer
             logger.info(
                 f"RAG relevance check: '{answer}' -> {is_relevant} ({elapsed:.1f}s)"

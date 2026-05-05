@@ -21,7 +21,7 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   # チャンク済みCSVからQ/A生成
   pipeline = QAPipeline(
       input_file="output_chunked/data_chunks.csv",
-      model="claude-sonnet-4-6",  # [MIGRATION] "gemini-2.0-flash" → "claude-sonnet-4-6"
+      model="gpt-5.4-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5.4-mini"
       output_dir="qa_output/pipeline"
   )
   result = pipeline.run(
@@ -52,7 +52,7 @@ class QAPipeline:
     def __init__(self,
                  dataset_name: Optional[str] = None,
                  input_file: Optional[str] = None,
-                 model: str = "claude-sonnet-4-6",  # [MIGRATION] "gemini-2.0-flash" → "claude-sonnet-4-6"
+                 model: str = "gpt-5.4-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5.4-mini"
                  output_dir: str = "qa_output/pipeline",
                  max_docs: Optional[int] = None,
                  client: Optional[LLMClient] = None):
@@ -267,7 +267,7 @@ class QAPipeline:
 
         # use_smart_generationをCeleryタスクに渡す
         tasks = submit_unified_qa_generation(
-            chunks, self.config, self.model, provider="anthropic",  # [MIGRATION] "gemini" → "anthropic"
+            chunks, self.config, self.model, provider="openai",  # [MIGRATION] "anthropic" → "openai"
             use_smart_generation=use_smart_generation
         )
 
