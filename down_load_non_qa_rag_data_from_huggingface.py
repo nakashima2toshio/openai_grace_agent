@@ -914,7 +914,7 @@ def main():
             df = st.session_state['uploaded_data']
             st.subheader("📋 データプレビュー")
             st.info(f"データ件数: {len(df)}件 | カラム数: {len(df.columns)}列")
-            st.dataframe(df.head(10), width='stretch')
+            st.dataframe(df.head(10), use_container_width=True)
 
             # カラム情報
             with st.expander("📊 カラム詳細"):
@@ -925,7 +925,7 @@ def main():
                     'NULL数'    : df.isnull().sum(),
                     'ユニーク数': [df[col].nunique() for col in df.columns]
                 })
-                st.dataframe(col_info, width='stretch')
+                st.dataframe(col_info, use_container_width=True)
 
     # Tab 2: データ検証
     with tab2:
@@ -1056,7 +1056,7 @@ def main():
                 df_processed = st.session_state['processed_data']
 
                 st.subheader("📋 処理済みデータプレビュー")
-                st.dataframe(df_processed[['Combined_Text']].head(10), width='stretch')
+                st.dataframe(df_processed[['Combined_Text']].head(10), use_container_width=True)
 
                 # トークン使用量推定
                 st.subheader("💰 トークン使用量推定")

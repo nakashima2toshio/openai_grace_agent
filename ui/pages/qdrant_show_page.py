@@ -68,7 +68,7 @@ def display_source_info(source_info: dict) -> None:
         })
 
     df_sources = pd.DataFrame(source_data)
-    st.dataframe(df_sources, width='stretch', hide_index=True)
+    st.dataframe(df_sources, use_container_width=True, hide_index=True)
 
 
 def show_qdrant_page():
@@ -223,7 +223,7 @@ def show_qdrant_page():
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("📦 データソース分析を表示", width='stretch'):
+                if st.button("📦 データソース分析を表示", use_container_width=True):
                     with st.spinner("分析中..."):
                         source_info = data_fetcher.fetch_collection_source_info(selected_collection)
                         display_source_info(source_info)
@@ -233,14 +233,14 @@ def show_qdrant_page():
 
             st.divider()
 
-            if st.button("🔎 データをロード", type="primary", width='stretch'):
+            if st.button("🔎 データをロード", type="primary", use_container_width=True):
                 with st.spinner("ロード中..."):
                     df_points = data_fetcher.fetch_collection_points(selected_collection, limit=limit)
 
                     if not df_points.empty and "ID" in df_points.columns:
                         st.dataframe(
                             df_points,
-                            width='stretch',
+                            use_container_width=True,
                             column_config={
                                 "answer"  : st.column_config.TextColumn(
                                     "回答", width="large", max_chars=200

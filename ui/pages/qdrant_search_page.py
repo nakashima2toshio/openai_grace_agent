@@ -378,7 +378,7 @@ def show_qdrant_search_page():
             if hits:
                 best_hit = hits[0]
                 st.divider()
-                st.subheader("🧠 AI応答（Gemini）")
+                st.subheader("🧠 AI応答（OpenAI）")
 
                 best_payload = best_hit.payload or {}
                 best_question = best_payload.get("question", "")
@@ -411,11 +411,11 @@ def show_qdrant_search_page():
                     st.code(qa_prompt)
 
                 try:
-                    with st.spinner("Gemini AIが回答を生成中..."):
-                        llm_client = create_llm_client(provider="gemini")
+                    with st.spinner("OpenAI GPTが回答を生成中..."):
+                        llm_client = create_llm_client(provider="openai")
                         generated_answer = llm_client.generate_content(
                             prompt=qa_prompt,
-                            model="gemini-2.0-flash"
+                            model="gpt-5.4-mini"
                         )
 
                     if generated_answer and generated_answer.strip():
@@ -439,4 +439,3 @@ def show_qdrant_search_page():
             elif "collection" in str(e).lower() and "not found" in str(e).lower():
                 st.warning(f"コレクション '{collection}' が見つかりません")
                 st.info("「Qdrant登録」でデータを登録してください")
-

@@ -152,7 +152,7 @@ def show_qdrant_registration_page():
     with st.expander("📋 データプレビュー（最初の3件）"):
         try:
             df_preview = pd.read_csv(csv_path, nrows=3)
-            st.dataframe(df_preview, width='stretch')
+            st.dataframe(df_preview, use_container_width=True)
         except Exception as e:
             st.error(f"プレビュー読み込みエラー: {e}")
 
@@ -179,7 +179,7 @@ def show_qdrant_registration_page():
     run_registration = st.button(
         "🚀 Qdrantに登録を実行",
         type="primary",
-        width='stretch',
+        use_container_width=True,
         disabled=not (qdrant_connected and is_valid_collection_name),
     )
 

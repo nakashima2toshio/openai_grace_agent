@@ -86,7 +86,7 @@ def show_agent_chat_page():
                         # データフレーム表示（スクロール可能）
                         st.dataframe(
                             df_preview,
-                            width='stretch',
+                            use_container_width=True,
                             hide_index=True,
                             height=600,  # スクロール可能な高さ
                             column_config={

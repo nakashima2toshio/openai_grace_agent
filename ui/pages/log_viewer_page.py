@@ -62,7 +62,7 @@ def show_log_viewer_page():
 
     st.dataframe(
         df_logs,
-        width='stretch',
+        use_container_width=True,
         column_config={
             "timestamp": st.column_config.DatetimeColumn("日時", format="YYYY-MM-DD HH:mm:ss"),
             "query": st.column_config.TextColumn("質問内容", width="large"),

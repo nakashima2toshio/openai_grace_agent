@@ -807,3 +807,4 @@ def get_embedding_model_pricing(model_name: str) -> float:
 
 def get_embedding_model_dimensions(model_name: str) -> int:
     return EMBEDDING_DIMS.get(model_name, 0)
+

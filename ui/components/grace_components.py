@@ -35,7 +35,7 @@ def display_confidence_metric(score: float, level: str, breakdown: Dict[str, flo
         )
         fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
         # st.plotly_chart(fig, use_container_width=True)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
 def display_execution_plan(plan: ExecutionPlan, current_step_id: int = 0):
     """実行計画の進捗を表示"""

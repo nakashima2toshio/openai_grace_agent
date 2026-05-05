@@ -1,3 +1,0 @@
-"""
-GRACE Agent Tests
-"""
