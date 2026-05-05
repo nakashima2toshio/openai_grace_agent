@@ -14,7 +14,7 @@ helper_embedding.py の EmbeddingClient を継承し、
 
 import logging
 from typing import List, Optional
-from helper_embedding import EmbeddingClient
+from helper.helper_embedding import EmbeddingClient  # [FIXED] helper_embedding → helper.helper_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ try:
 except ImportError:
     TextEmbedding = None
     logger.error("FastEmbed is not installed. Please run `pip install fastembed`.")
-
 
 # FastEmbedのデフォルト設定
 # 多言語対応が必要な場合は "intfloat/multilingual-e5-large" (1024次元) などに変更
@@ -35,10 +34,10 @@ class FastEmbedEmbedding(EmbeddingClient):
     """FastEmbedを使用したローカルEmbedding生成クラス"""
 
     def __init__(
-        self,
-        model_name: str = DEFAULT_FASTEMBED_MODEL,
-        threads: Optional[int] = None,
-        cache_dir: Optional[str] = None
+            self,
+            model_name: str = DEFAULT_FASTEMBED_MODEL,
+            threads: Optional[int] = None,
+            cache_dir: Optional[str] = None
     ):
         """
         Args:
@@ -50,14 +49,14 @@ class FastEmbedEmbedding(EmbeddingClient):
             raise ImportError("FastEmbed library is missing.")
 
         logger.info(f"Initializing FastEmbed with model: {model_name}")
-        
+
         self.model_name = model_name
         self._model = TextEmbedding(
             model_name=model_name,
             threads=threads,
             cache_dir=cache_dir
         )
-        
+
         # モデルから次元数を取得したいが、FastEmbedのAPI的に
         # 初期化直後に取得する明確なプロパティがない場合があるため、
         # 既知のモデルであれば定数、そうでなければ一度ダミー実行して確認する手もある。
@@ -83,9 +82,9 @@ class FastEmbedEmbedding(EmbeddingClient):
         return embeddings[0].tolist()
 
     def embed_texts(
-        self,
-        texts: List[str],
-        batch_size: int = 256
+            self,
+            texts: List[str],
+            batch_size: int = 256
     ) -> List[List[float]]:
         """
         バッチEmbedding生成

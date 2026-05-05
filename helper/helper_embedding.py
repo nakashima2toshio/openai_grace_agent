@@ -321,7 +321,7 @@ def create_embedding_client(
         return GeminiEmbedding(**kwargs)
     elif provider.lower() == "fastembed":
         try:
-            from helper_embedding_fastembed import FastEmbedEmbedding
+            from helper.helper_embedding_fastembed import FastEmbedEmbedding  # [FIXED] helper_embedding_fastembed → helper.helper_embedding_fastembed
             return FastEmbedEmbedding(**kwargs)
         except ImportError as e:
             raise ImportError(f"FastEmbed module load failed: {e}. Check if 'fastembed' is installed.")
