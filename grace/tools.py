@@ -354,7 +354,7 @@ class ReasoningTool(BaseTool):
             answer = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_tokens=self.config.llm.max_tokens,
+                max_completion_tokens=self.config.llm.max_tokens,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
                 temperature=self.config.llm.temperature,
                 system=(
                     "あなたは社内ドキュメント検索システムと連携した「ハイブリッド・ナレッジ・エージェント」です。"

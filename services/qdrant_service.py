@@ -187,8 +187,8 @@ def get_collection_embedding_params(
     Returns:
         {"model": str, "dims": int}
     """
-    # デフォルト設定（Gemini）
-    default_params = {"model": "gemini-embedding-001", "dims": 3072}
+    # デフォルト設定（OpenAI）[MIGRATION] Gemini → OpenAI
+    default_params = {"model": "text-embedding-3-large", "dims": 3072}
 
     try:
         info = client.get_collection(collection_name)
@@ -207,9 +207,9 @@ def get_collection_embedding_params(
         if size == 1536:
             return {"model": "text-embedding-3-small", "dims": 1536}
         elif size == 3072:
-            return {"model": "gemini-embedding-001", "dims": 3072}
+            return {"model": "text-embedding-3-large", "dims": 3072}  # [MIGRATION] gemini-embedding-001 → text-embedding-3-large
         elif size == 768:
-            return {"model": "gemini-embedding-001", "dims": 768}
+            return {"model": "text-embedding-3-small", "dims": 768}
         elif size > 0:
             # 未知の次元数の場合はサイズだけ更新してモデルはデフォルト（または汎用）
             return {"model": "unknown-embedding-model", "dims": size}
@@ -628,12 +628,12 @@ def build_inputs_for_embedding(df: pd.DataFrame, include_answer: bool) -> List[s
 
 
 def embed_texts_for_qdrant(
-        texts: List[str], model: str = "gemini-embedding-001", batch_size: int = 100
+        texts: List[str], model: str = "text-embedding-3-large", batch_size: int = 100
 ) -> List[List[float]]:
-    """テキストをバッチ処理でEmbeddingに変換（Gemini API使用）"""
-    # Gemini Embeddingクライアントを使用
-    embedding_client = create_embedding_client(provider="gemini")
-    dims = get_embedding_dimensions("gemini")  # 3072
+    """テキストをバッチ処理でEmbeddingに変換（OpenAI API使用）[MIGRATION] Gemini → OpenAI"""
+    # OpenAI Embeddingクライアントを使用
+    embedding_client = create_embedding_client(provider="openai")
+    dims = get_embedding_dimensions("openai")  # 3072
 
     # 空文字列・空白のみの文字列を除外
     valid_texts = []
@@ -647,7 +647,7 @@ def embed_texts_for_qdrant(
         logger.warning("全てのテキストが空文字列です。ダミーベクトルを返します。")
         return [[0.0] * dims] * len(texts)
 
-    # Gemini Embeddingでバッチ処理
+    # OpenAI Embeddingでバッチ処理
     valid_vecs = embedding_client.embed_texts(valid_texts, batch_size=batch_size)
 
     # 元のインデックスに合わせてベクトルを再配置
@@ -812,15 +812,16 @@ def upsert_points_to_qdrant(
 # ===================================================================
 
 def embed_query_for_search(
-        query: str, model: str = "gemini-embedding-001", dims: Optional[int] = None
+        query: str, model: str = "text-embedding-3-large", dims: Optional[int] = None
 ) -> List[float]:
     """
     検索クエリをベクトル化
 
     次元数(dims)またはモデル名(model)に基づいてプロバイダーを自動選択します。
+    [MIGRATION] デフォルトを gemini-embedding-001 → text-embedding-3-large に変更
     """
-    # デフォルトはGemini
-    provider = "gemini"
+    # デフォルトはOpenAI
+    provider = "openai"
 
     # 次元数による判定
     if dims == 1536:
@@ -1062,4 +1063,3 @@ def get_all_collections_simple(client: QdrantClient) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"コレクション一覧取得エラー: {e}")
         return []
-

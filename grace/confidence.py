@@ -494,7 +494,7 @@ class LLMSelfEvaluator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_tokens=10,
+                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
             )
 
@@ -596,7 +596,7 @@ class LLMSelfEvaluator:
                 prompt=prompt,
                 response_schema=EvaluationResult,
                 model=self.model_name,
-                max_tokens=200,
+                max_completion_tokens=200,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
                 system="You are an AI agent monitor. Evaluate the step result and return structured JSON.",
             )
@@ -749,7 +749,7 @@ class QueryCoverageCalculator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_tokens=10,
+                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
             )
 

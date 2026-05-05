@@ -1,450 +1,490 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
-qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v3.0 - チャンク処理削除版）
+GRACE Planner - 計画生成エージェント
 
-改修内容 (v3.0):
-- ★重要★ チャンク分割処理を完全に削除（前段のchunkingで完了済み）
-- create_chunks() メソッドを削除
-- _convert_df_to_chunks() メソッドを削除
-- skip_chunking パラメータを削除
-- merge_chunks, min_tokens, max_tokens パラメータを削除
-- overlap_tokens, use_similarity, similarity_threshold パラメータを削除
-- structure.py への依存を削除
-- SmartQAGenerator を直接使用
+ユーザーの質問を分析し、実行計画を生成
 
-前提条件:
-- 入力CSVは既にチャンク済み（csv_text_to_chunks_text_csv.py で処理済み）
-- チャンクCSVには 'text' または 'Combined_Text' カラムが必要
-
-使用例:
-  # チャンク済みCSVからQ/A生成
-  pipeline = QAPipeline(
-      input_file="output_chunked/data_chunks.csv",
-      model="gpt-4o-mini",  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
-      output_dir="qa_output/pipeline"
-  )
-  result = pipeline.run(
-      use_celery=True,
-      concurrency=8,
-      use_smart_generation=True
-  )
+[2026-05-05] openai_grace_agent 移植対応:
+    - AnthropicClient → OpenAIClient (via create_llm_client)
+    - create_llm_client("anthropic") → create_llm_client("openai")
+    - response_schema=ExecutionPlan → generate_structured() で Structured Outputs に代替
+    - max_tokens → max_completion_tokens（gpt-5.4-mini以降の仕様変更）
+    - AFC関連バグ回避コードを削除（Anthropic では不要）
 """
 
-import sys
 import logging
-from typing import List, Dict, Optional, Any
-import pandas as pd
-from pathlib import Path
+from typing import Optional, List
 
-from config import DATASET_CONFIGS
-from helper.helper_llm import LLMClient
-from qa_generation.smart_qa_generator import SmartQAGenerator
-from qa_generation.evaluation import analyze_coverage
-from celery_tasks import submit_unified_qa_generation, collect_results, check_celery_workers
+# [MIGRATION] 削除: from google import genai / from google.genai import types
+# [MIGRATION] 追加: AnthropicClient を helper_llm 経由で使用
+from helper.helper_llm import create_llm_client
+
+from .schemas import (
+    ExecutionPlan,
+    PlanStep,
+    create_plan_id,
+    validate_plan_dependencies,
+)
+from .config import get_config, GraceConfig
+from services.qdrant_service import get_all_collections
+from qdrant_client import QdrantClient
+from services.prompts import SEARCH_QUERY_INSTRUCTION
+from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# プロンプト定義（変更なし）
+# =============================================================================
 
-class QAPipeline:
-    """Q/A生成パイプライン（チャンク済みCSV専用）"""
+PLAN_GENERATION_PROMPT = f"""
+あなたは計画策定の専門家です。ユーザーの質問を分析し、回答を生成するための実行計画を作成してください。
 
-    def __init__(self,
-                 dataset_name: Optional[str] = None,
-                 input_file: Optional[str] = None,
-                 model: str = "gpt-4o-mini",  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
-                 output_dir: str = "qa_output/pipeline",
-                 max_docs: Optional[int] = None,
-                 client: Optional[LLMClient] = None):
-        """
-        Args:
-            dataset_name: データセット名 (cc_news, wikipedia_ja, etc.)
-            input_file: ローカル入力ファイルパス（チャンク済み.csv）
-            model: 使用するモデル
-            output_dir: 出力ディレクトリ
-            max_docs: 最大処理チャンク数
-            client: LLMクライアント（DI用）
-        """
-        self.dataset_name = dataset_name
-        self.input_file = input_file
-        self.model = model
-        self.output_dir = output_dir
-        self.max_docs = max_docs
-        self.client = client
+【利用可能なアクション】
+- rag_search: ベクトルDB（Qdrant）から関連情報を検索（社内ドキュメント・FAQ向け）
+- web_search: Web検索で最新情報や一般的な情報を取得（最新ニュース・外部情報向け）
+- reasoning: 収集した情報を分析・統合して回答を生成
+- ask_user: ユーザーに追加情報や確認を求める
 
-        # 引数の排他制御
-        self._validate_inputs()
+【利用可能なコレクション (rag_search用)】
+{{available_collections}}
 
-        self.config = self._load_config()
+【コレクション選択のルール (重要)】
+- `rag_search` の `collection` 引数は、原則として指定しないでください（`null` または省略）。
+   * 特定のコレクション（例: wikipedia_ja）に限定せず、利用可能なすべてのコレクションから網羅的に検索を行うためです。
+   * システム側で自動的に最適なコレクション順序で検索を実行します。
+- 例外: ユーザーが明示的に「livedoorニュースから検索して」のように指定した場合のみ、そのコレクション名を指定してください。
 
-        # SmartQAGeneratorの初期化
-        self.smart_generator = SmartQAGenerator(model=model)
-        logger.info(f"SmartQAGenerator初期化完了 (model={model})")
+【検索クエリの作成ルール】
+- `rag_search` の `query` 引数は、ユーザーの質問文を極力そのまま使用してください。
+   * 単語の羅列（例: "金色夜叉 尾崎紅葉"）に変換せず、自然言語の文脈
+   （例:"〜の構成者は誰ですか？"）を維持することで、ベクトル検索の精度が向上します。
 
-    def _validate_inputs(self):
-        """入力パラメータの検証"""
-        inputs = [self.dataset_name, self.input_file]
-        non_none_count = sum(1 for x in inputs if x is not None)
+【計画作成のルール (厳守)】
+1. 検索アクション（rag_search）は、可能な限り「1つのステップ」にまとめてください。
+    * 質問を分解して複数の検索ステップを作らないでください。
+2. `rag_search` の `query` は、ユーザーの元の質問文を「完全一致でコピー」してください。
+    * 要約、キーワード化、分割は一切禁止です。
+    * 悪い例: "金色夜叉 構成者"
+    * 良い例: "『金色夜叉:尾崎紅葉不如帰:徳富蘆花』の構成者は誰ですか？"
+3. 依存関係を正しく設定してください（depends_onは先行ステップのIDのみ）。
+4. 失敗時の代替手段（fallback）を検討してください。
+5. 最後のステップは必ず "reasoning" で回答を生成してください
+6. rag_search と web_search の使い分け:
+    * 計画には web_search ステップを含めないでください
+    * web_search は、rag_search の結果が不十分な場合に executor が自動的に実行します
+    * 計画は常に rag_search → reasoning の2ステップ構成としてください
+    * rag_search の fallback には "web_search" を指定してください
+    * 例外: ユーザーが明示的に「最新ニュースを検索して」等と指示した場合のみ、
+      web_search 単体のステップを計画に含めてよい
 
-        if non_none_count == 0:
-            raise ValueError(
-                "dataset_name, input_file のいずれか1つを指定してください"
-            )
+{SEARCH_QUERY_INSTRUCTION}
 
-        if non_none_count > 1:
-            raise ValueError(
-                "dataset_name, input_file は同時に指定できません"
-            )
+【計画の複雑度(complexity)の目安】
+- 0.0-0.3: 単純な質問（1-2ステップ）
+- 0.4-0.6: 中程度の質問（2-3ステップ）
+- 0.7-1.0: 複雑な質問（4ステップ以上）
 
-    def _load_config(self) -> Dict[str, Any]:
-        """設定をロード"""
-        if self.input_file:
-            # ローカルファイル用の動的設定
-            file_basename = Path(self.input_file).stem
-            lang = "ja"  # デフォルト
-            return {
-                "name"        : f"ローカルファイル ({file_basename})",
-                "text_column" : "text",  # チャンク済みCSVのデフォルトカラム
-                "title_column": None,
-                "lang"        : lang,
-                "qa_per_chunk": 3,
-                "type"        : file_basename
-            }
+【requires_confirmationをtrueにする条件】
+- 質問が曖昧で複数の解釈が可能な場合
+- 実行に時間がかかる可能性がある場合
+- 外部リソースへのアクセスが必要な場合
 
-        elif self.dataset_name:
-            # 事前定義データセット
-            if self.dataset_name not in DATASET_CONFIGS:
-                raise ValueError(f"未知のデータセット: {self.dataset_name}")
+ユーザーの質問: {{query}}
 
-            config = DATASET_CONFIGS[self.dataset_name].copy()
-            logger.info(f"データセット設定をロード: {self.dataset_name}")
-            return config
+JSON形式で実行計画を出力してください。
+"""
 
-        else:
-            raise ValueError("設定の読み込みに失敗しました")
+COMPLEXITY_ESTIMATION_PROMPT = """
+以下の質問の複雑度を0.0から1.0の数値で評価してください。
 
-    def load_data(self) -> pd.DataFrame:
-        """データを読み込む"""
-        from qa_generation.data_io import load_uploaded_file, load_preprocessed_data
+評価基準:
+- 0.0-0.2: 非常に単純（事実確認、定義の質問）
+- 0.3-0.4: 単純（1つのトピックについての説明）
+- 0.5-0.6: 中程度（比較、分析が必要）
+- 0.7-0.8: 複雑（複数のソースからの情報統合が必要）
+- 0.9-1.0: 非常に複雑（専門知識、多段階の推論が必要）
 
-        logger.info("\n[1/3] データ読み込み...")
+質問: {query}
 
-        if self.input_file:
-            file_path = Path(self.input_file)
+数値のみを回答してください（例: 0.5）
+"""
 
-            # CSVファイルのみ対応（チャンク済み前提）
-            if file_path.suffix == '.csv':
-                logger.info(f"  📊 チャンク済みCSVファイル: {self.input_file}")
-                df = load_uploaded_file(self.input_file)
-                logger.info(f"  ✅ 読み込み完了: {len(df)} 行")
 
-            else:
-                raise ValueError(
-                    f"未対応のファイル形式: {file_path.suffix}\n"
-                    f"チャンク済みCSVファイル（.csv）を指定してください。\n"
-                    f"テキストファイルの場合は、先に csv_text_to_chunks_text_csv.py でチャンク化してください。"
-                )
+# =============================================================================
+# Planner クラス
+# =============================================================================
 
-            # 最大チャンク数制限
-            if self.max_docs and len(df) > self.max_docs:
-                df = df.head(self.max_docs)
-                logger.info(f"  📊 最大チャンク数制限: {len(df)} 件に制限")
+class Planner:
+    """計画生成エージェント"""
 
-            return df
-        else:
-            return load_preprocessed_data(self.dataset_name)
-
-    def _load_chunks_from_csv(self, df: pd.DataFrame) -> List[Dict]:
-        """チャンク済みCSVをチャンクリストに変換
-
-        Args:
-            df: チャンク済みデータを含むDataFrame
-
-        Returns:
-            チャンクのリスト
-        """
-        logger.info("\n[2/3] チャンクデータ変換...")
-
-        # テキストカラムの検出
-        text_col = None
-        for col in ['text', 'Combined_Text', 'content', 'chunk_text']:
-            if col in df.columns:
-                text_col = col
-                break
-
-        if text_col is None:
-            available_cols = list(df.columns)
-            raise ValueError(
-                f"テキストカラムが見つかりません。\n"
-                f"利用可能なカラム: {available_cols}\n"
-                f"必要なカラム: 'text', 'Combined_Text', 'content', 'chunk_text' のいずれか"
-            )
-
-        logger.info(f"  テキストカラム: {text_col}")
-
-        # チャンクIDカラムの検出
-        id_col = None
-        for col in ['chunk_id', 'id', 'chunk_idx']:
-            if col in df.columns:
-                id_col = col
-                break
-
-        if id_col:
-            logger.info(f"  IDカラム: {id_col}")
-
-        chunks = []
-        dataset_type = self.config.get("type", "unknown")
-
-        for idx, row in df.iterrows():
-            chunk_id = row[id_col] if id_col else f"{dataset_type}_chunk_{idx}"
-            chunk_text = str(row[text_col]).strip()
-
-            if not chunk_text:
-                continue
-
-            chunks.append({
-                'id': chunk_id,
-                'text': chunk_text,
-                'type': row.get('type', 'pre_chunked'),
-                'tokens': row.get('tokens', len(chunk_text) // 4),  # 概算
-                'dataset_type': dataset_type
-            })
-
-        logger.info(f"  ✅ チャンク変換完了: {len(chunks)} チャンク")
-        return chunks
-
-    def generate_qa(self, chunks: List[Dict],
-                    use_celery: bool = False,
-                    celery_workers: int = 1,
-                    concurrency: int = 8,
-                    batch_chunks: int = 3,
-                    use_smart_generation: bool = True) -> List[Dict]:
-        """Q/Aペアを生成する
-
-        Args:
-            chunks: チャンクのリスト
-            use_celery: Celery並列処理を使用するか
-            celery_workers: Celeryワーカープロセス数チェック用（デフォルト: 1）
-            concurrency: 並列タスク数（デフォルト: 8）
-            batch_chunks: 1回のAPIで処理するチャンク数
-            use_smart_generation: スマートQ/A生成を使用するか（常にTrue推奨）
-        """
-        logger.info("\n[3/3] Q/Aペア生成...")
-
-        # スマート生成モードのログ出力
-        mode_name = "スマート生成" if use_smart_generation else "従来方式"
-        logger.info(f"  生成モード: {mode_name}")
-        logger.info(f"  処理チャンク数: {len(chunks)}")
-
-        if use_celery:
-            return self._generate_with_celery(
-                chunks, celery_workers, concurrency, batch_chunks, use_smart_generation
-            )
-        else:
-            return self._generate_sync(chunks, batch_chunks, use_smart_generation)
-
-    def _generate_with_celery(self, chunks: List[Dict],
-                              workers: int,
-                              concurrency: int,
-                              batch_size: int,
-                              use_smart_generation: bool) -> List[Dict]:
-        """Celeryを使用した非同期生成
-
-        Args:
-            chunks: チャンクのリスト
-            workers: ワーカープロセス数チェック用
-            concurrency: 並列タスク数
-            batch_size: バッチサイズ
-            use_smart_generation: スマートQ/A生成を使用するか
-        """
-        logger.info(f"  Celery並列処理モード:")
-        logger.info(f"    - ワーカープロセス数チェック: {workers}")
-        logger.info(f"    - 並列タスク数 (concurrency): {concurrency}")
-
-        logger.info("  Celeryワーカーの状態を確認中...")
-        if not check_celery_workers(workers):
-            raise RuntimeError("Celery workers are not running")
-
-        # use_smart_generationをCeleryタスクに渡す
-        tasks = submit_unified_qa_generation(
-            chunks, self.config, self.model, provider="openai",  # [MIGRATION anthropic→openai]
-            use_smart_generation=use_smart_generation
-        )
-
-        timeout_seconds = min(max(len(tasks) * 10, 600), 1800)
-        logger.info(f"  結果収集タイムアウト: {timeout_seconds}秒（{len(tasks)}タスク）")
-        return collect_results(tasks, timeout=timeout_seconds)
-
-    def _generate_sync(self, chunks: List[Dict], batch_size: int,
-                       use_smart_generation: bool) -> List[Dict]:
-        """同期生成（SmartQAGenerator使用）
-
-        Args:
-            chunks: チャンクのリスト
-            batch_size: バッチサイズ（現在は未使用、将来の拡張用）
-            use_smart_generation: スマートQ/A生成を使用するか（常にTrue推奨）
-
-        Returns:
-            Q/Aペアのリスト
-        """
-        logger.info("  通常処理モード（SmartQAGenerator使用）")
-
-        all_qa_pairs = []
-        total = len(chunks)
-
-        for i, chunk in enumerate(chunks, 1):
-            chunk_text = chunk.get('text', '')
-            chunk_id = chunk.get('id', f'chunk_{i}')
-
-            if not chunk_text.strip():
-                logger.warning(f"    [{i}/{total}] 空のチャンクをスキップ: {chunk_id}")
-                continue
-
-            logger.info(f"    [{i}/{total}] 処理中: {chunk_id}")
-
-            try:
-                # SmartQAGeneratorでQ/A生成
-                result = self.smart_generator.process_chunk(chunk_text)
-
-                if result['success'] and result['qa_pairs']:
-                    for qa in result['qa_pairs']:
-                        all_qa_pairs.append({
-                            'question': qa['question'],
-                            'answer': qa['answer'],
-                            'chunk_id': chunk_id,
-                            'topic': qa.get('topic', ''),
-                            'dataset_type': chunk.get('dataset_type', 'unknown')
-                        })
-                    logger.info(f"      → {len(result['qa_pairs'])} Q/A生成")
-                else:
-                    logger.warning(f"      → Q/A生成なし（qa_count=0 または失敗）")
-
-            except Exception as e:
-                logger.error(f"      → エラー: {e}")
-                continue
-
-        logger.info(f"  ✅ 同期生成完了: {len(all_qa_pairs)} Q/Aペア")
-        return all_qa_pairs
-
-    def evaluate_coverage(self, chunks: List[Dict], qa_pairs: List[Dict],
-                          threshold: Optional[float] = None) -> Dict:
-        """カバレッジを評価する"""
-        logger.info("\n[追加] カバレージ分析...")
-        dataset_type = self.config.get("type", "unknown")
-        return analyze_coverage(chunks, qa_pairs, dataset_type, custom_threshold=threshold)
-
-    def save(self, qa_pairs: List[Dict], coverage_results: Dict) -> Dict[str, str]:
-        """結果を保存する"""
-        from qa_generation.data_io import save_results
-
-        logger.info("\n結果を保存中...")
-        dataset_type = self.config.get("type", "unknown")
-        return save_results(qa_pairs, coverage_results, dataset_type, self.output_dir)
-
-    def run(
+    def __init__(
             self,
-            use_celery: bool = False,
-            celery_workers: int = 1,
-            concurrency: int = 8,
-            batch_chunks: int = 3,
-            analyze_coverage: bool = True,
-            coverage_threshold: Optional[float] = None,
-            use_smart_generation: bool = True):
+            config: Optional[GraceConfig] = None,
+            model_name: Optional[str] = None
+    ):
         """
-        パイプライン実行
+        Args:
+            config: GRACE設定（Noneの場合はデフォルト設定を使用）
+            model_name: 使用するモデル名（Noneの場合は設定から取得）
+        """
+        self.config = config or get_config()
+        self.model_name = model_name or self.config.llm.model
+
+        # [MIGRATION] genai.Client() → AnthropicClient
+        # [MIGRATION] create_llm_client("anthropic") → create_llm_client("openai")
+        # generate_structured() が Structured Outputs による構造化出力を隠蔽する
+        self.llm = create_llm_client("openai", default_model=self.model_name)
+
+        # KeywordExtractorの初期化（変更なし）
+        try:
+            self.keyword_extractor = KeywordExtractor(prefer_mecab=True)
+            logger.info("Planner: KeywordExtractor initialized")
+        except Exception as e:
+            logger.warning(f"Planner: Failed to initialize KeywordExtractor: {e}")
+            self.keyword_extractor = None
+
+        logger.info(f"Planner initialized with model: {self.model_name}")
+
+    def create_plan(self, query: str) -> ExecutionPlan:
+        """
+        質問から実行計画を生成（LLM使用版）
 
         Args:
-            use_celery: Celery並列処理を使用するか
-            celery_workers: Celeryワーカープロセス数チェック用（デフォルト: 1）
-            concurrency: 並列タスク数（デフォルト: 8）
-            batch_chunks: 1回のAPIで処理するチャンク数
-            analyze_coverage: カバレージ分析を実行するか
-            coverage_threshold: カバレージ判定の類似度閾値
-            use_smart_generation: スマートQ/A生成を使用するか（デフォルト: True）
-
+            query: ユーザーの質問
         Returns:
-            Dict: 実行結果
-                - saved_files: 保存されたファイルパス
-                - qa_count: 生成されたQ/Aペア数
-                - coverage_results: カバレージ分析結果
-                - success: 成功フラグ
+            ExecutionPlan: LLMが生成した実行計画
         """
+        logger.info(f"Creating execution plan for: {query[:50]}...")
+
         try:
-            # ================================================================
-            # パイプライン開始
-            # ================================================================
-            logger.info("=" * 60)
-            logger.info("Q/A生成パイプライン（チャンク済みCSV専用）")
-            logger.info("=" * 60)
+            # 利用可能なコレクションを取得
+            available_collections = self._get_available_collections()
+            collections_str = ", ".join(available_collections) if available_collections else "(コレクションなし)"
 
-            # ================================================================
-            # データ読み込み
-            # ================================================================
-            df = self.load_data()
+            # 複雑度を推定（LLM使用）
+            estimated_complexity = self.estimate_complexity_with_llm(query)
 
-            # ================================================================
-            # チャンクリストに変換
-            # ================================================================
-            chunks = self._load_chunks_from_csv(df)
+            # プロンプトを構築
+            prompt = PLAN_GENERATION_PROMPT.format(
+                available_collections=collections_str,
+                query=query
+            ) + "\n\nIMPORTANT: Ensure the output is a valid, complete JSON object. Do not truncate the response."
 
-            if not chunks:
-                raise RuntimeError("有効なチャンクがありません")
+            # --- [IPO LOG] PROCESS INPUT (GRACE PLANNER) ---
+            logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
-            # ================================================================
-            # Q/A生成
-            # ================================================================
-            qa_pairs = self.generate_qa(
-                chunks,
-                use_celery,
-                celery_workers,
-                concurrency,
-                batch_chunks,
-                use_smart_generation
+            # リトライ付きでLLM呼び出し（最大2回）
+            import time as _time
+
+            plan = None
+            last_error = None
+            max_attempts = 2
+
+            for attempt in range(max_attempts):
+                try:
+                    t0 = _time.time()
+
+                    # [MIGRATION] generate_content() + response_schema=ExecutionPlan
+                    #           → generate_structured() で Structured Outputs に自動変換
+                    # 戻り値は ExecutionPlan インスタンスが直接返る
+                    # ・空レスポンスガード不要（Tool Use は必ず構造体を返す）
+                    # ・JSONDecodeError チェック不要（SDK がパース済み）
+                    # ・AFC バグ対策コード不要（Anthropic には AFC が存在しない）
+                    plan = self.llm.generate_structured(
+                        prompt=prompt,
+                        response_schema=ExecutionPlan,
+                        model=self.model_name,
+                        max_completion_tokens=8192,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                        system="You are an expert planning agent. Always respond using the provided tool.",
+                        temperature=self.config.llm.temperature,
+                    )
+
+                    elapsed = _time.time() - t0
+                    logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
+
+                    # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
+                    logger.info(
+                        f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n"
+                        f"{plan.model_dump_json(indent=2)}\n{'=' * 60}"
+                    )
+
+                    break  # 成功したらループ終了
+
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"Plan creation attempt {attempt + 1}/{max_attempts} failed: {e}")
+                    continue
+
+            if plan is None:
+                raise last_error or ValueError("Plan creation failed after all retries")
+
+            # 事前に計算した正確な複雑度を適用
+            plan.complexity = estimated_complexity
+
+            # 計画IDを設定
+            plan.plan_id = create_plan_id()
+
+            # 依存関係を検証
+            errors = validate_plan_dependencies(plan)
+            if errors:
+                logger.warning(f"Plan validation errors: {errors}")
+
+            logger.info(
+                f"Plan created: {len(plan.steps)} steps, "
+                f"complexity={plan.complexity:.2f}, "
+                f"requires_confirmation={plan.requires_confirmation}"
             )
 
-            if not qa_pairs:
-                logger.warning("Q/Aペアが生成されませんでした")
+            # 最終的なプラン内容をログ出力
+            logger.info(f"Final Execution Plan:\n{plan.model_dump_json(indent=2)}")
 
-            # ================================================================
-            # カバレージ分析
-            # ================================================================
-            coverage_results = {}
-            if analyze_coverage and qa_pairs:
-                coverage_results = self.evaluate_coverage(chunks, qa_pairs, coverage_threshold)
-            else:
-                coverage_results = {
-                    "coverage_rate"   : 0,
-                    "covered_chunks"  : 0,
-                    "total_chunks"    : len(chunks),
-                    "uncovered_chunks": []
-                }
-
-            # ================================================================
-            # 結果保存
-            # ================================================================
-            saved_files = self.save(qa_pairs, coverage_results)
-
-            # ================================================================
-            # 完了サマリー
-            # ================================================================
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("✅ パイプライン完了")
-            logger.info("=" * 60)
-            logger.info(f"  入力チャンク数: {len(chunks)}")
-            logger.info(f"  生成Q/A数: {len(qa_pairs)}")
-            if analyze_coverage:
-                logger.info(f"  カバレージ率: {coverage_results.get('coverage_rate', 0):.1%}")
-            logger.info("=" * 60)
-
-            # 返り値
-            return {
-                "saved_files"     : saved_files,
-                "qa_count"        : len(qa_pairs),
-                "coverage_results": coverage_results,
-                "success"         : True
-            }
+            return plan
 
         except Exception as e:
-            logger.error(f"パイプライン実行エラー: {e}")
-            raise
+            logger.error(f"Failed to create plan with LLM: {e}")
+            logger.info("Falling back to simple plan")
+            return self._create_fallback_plan(query)
+
+    def _create_plan_legacy(self, query: str) -> ExecutionPlan:
+        """
+        質問から実行計画を生成（Legacy Agent委譲版 - バックアップ）
+        """
+        return ExecutionPlan(
+            original_query=query,
+            complexity=0.1,
+            estimated_steps=1,
+            requires_confirmation=False,
+            steps=[
+                PlanStep(
+                    step_id=1,
+                    action="run_legacy_agent",
+                    description="Legacy Agent (ReAct) を実行して回答を生成",
+                    query=query,
+                    collection=None,
+                    expected_output="ユーザーへの回答",
+                    fallback=None,
+                    timeout_seconds=30
+                )
+            ],
+            success_criteria="ユーザーの質問に適切に回答できている",
+            plan_id=create_plan_id()
+        )
+
+    def _get_available_collections(self) -> list:
+        """利用可能なQdrantコレクションを取得（変更なし）"""
+        try:
+            client = QdrantClient(url=self.config.qdrant.url)
+            cols = get_all_collections(client)
+            return [c["name"] for c in cols]
+        except Exception as e:
+            logger.warning(f"Failed to get collections: {e}")
+            return self.config.qdrant.search_priority
+
+    def _create_fallback_plan(self, query: str) -> ExecutionPlan:
+        """
+        フォールバック用の単純な計画を生成（変更なし）
+
+        Args:
+            query: ユーザーの質問
+        Returns:
+            ExecutionPlan: 単純な2ステップ計画
+        """
+        logger.info("Creating fallback plan")
+
+        try:
+            available = self._get_available_collections()
+            fallback_collection = next(
+                (c for c in available if "wikipedia" in c), None
+            )
+        except Exception:
+            fallback_collection = None
+
+        return ExecutionPlan(
+            original_query=query,
+            complexity=0.5,
+            estimated_steps=2,
+            requires_confirmation=False,
+            steps=[
+                PlanStep(
+                    step_id=1,
+                    action="rag_search",
+                    description="全コレクションから関連情報を検索",
+                    query=query,
+                    collection=fallback_collection,
+                    expected_output="関連するドキュメントや情報",
+                    fallback="web_search",
+                    timeout_seconds=30
+                ),
+                PlanStep(
+                    step_id=2,
+                    action="reasoning",
+                    description="取得した情報を元に回答を生成",
+                    query=None,
+                    collection=None,
+                    depends_on=[1],
+                    expected_output="ユーザーへの回答",
+                    fallback=None,
+                    timeout_seconds=30
+                )
+            ],
+            success_criteria="ユーザーの質問に適切に回答できている",
+            plan_id=create_plan_id()
+        )
+
+    def estimate_complexity(self, query: str) -> float:
+        """
+        質問の複雑度を推定（キーワードベース簡易版・変更なし）
+
+        Args:
+            query: ユーザーの質問
+        Returns:
+            float: 複雑度スコア
+        """
+        complexity_factors = [
+            ("比較", 0.15), ("違い", 0.15), ("複数", 0.2),
+            ("最新", 0.1),  ("理由", 0.1),  ("方法", 0.1),
+            ("詳しく", 0.15), ("ステップ", 0.1), ("手順", 0.1),
+            ("なぜ", 0.1),  ("どのように", 0.15),
+        ]
+
+        score = 0.5
+        for keyword, weight in complexity_factors:
+            if keyword in query:
+                score += weight
+
+        if len(query) > 100:
+            score += 0.1
+        if len(query) > 200:
+            score += 0.1
+
+        return min(1.0, score)
+
+    def estimate_complexity_with_llm(self, query: str) -> float:
+        """
+        LLMを使用して質問の複雑度を推定
+
+        Args:
+            query: ユーザーの質問
+        Returns:
+            float: 複雑度スコア
+        """
+        import time as _time
+        try:
+            prompt = COMPLEXITY_ESTIMATION_PROMPT.format(query=query)
+
+            t0 = _time.time()
+
+            # [MIGRATION] generate_content() (OpenAI版)
+            #           → generate_content() (OpenAI版)
+            # 戻り値は str（response.text 相当）が直接返る
+            # AFC 無効化オプションは Anthropic では不要なため削除
+            complexity_str = self.llm.generate_content(
+                prompt=prompt,
+                model=self.model_name,
+                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                temperature=0.1,
+            )
+
+            elapsed = _time.time() - t0
+            logger.info(f"[API時間] estimate_complexity_with_llm: {elapsed:.1f}秒")
+
+            # [MIGRATION] response.text → complexity_str (str が直接返る)
+            # Noneガード: generate_content() は str を返すため基本不要だが念のため残す
+            if not complexity_str or not complexity_str.strip():
+                logger.warning("estimate_complexity_with_llm: empty response")
+                return self.estimate_complexity(query)
+
+            complexity = float(complexity_str.strip())
+            return min(1.0, max(0.0, complexity))
+
+        except Exception as e:
+            logger.warning(f"LLM complexity estimation failed: {e}")
+            return self.estimate_complexity(query)
+
+    def refine_plan(
+            self,
+            plan: ExecutionPlan,
+            feedback: str
+    ) -> ExecutionPlan:
+        """
+        フィードバックに基づいて計画を修正
+
+        Args:
+            plan: 元の計画
+            feedback: ユーザーからのフィードバック
+        Returns:
+            ExecutionPlan: 修正された計画
+        """
+        logger.info(f"Refining plan {plan.plan_id} with feedback")
+
+        refine_prompt = f"""
+以下の実行計画をユーザーのフィードバックに基づいて修正してください。
+
+【元の計画】
+クエリ: {plan.original_query}
+ステップ数: {len(plan.steps)}
+ステップ: {[s.description for s in plan.steps]}
+
+【ユーザーのフィードバック】
+{feedback}
+
+修正された計画をJSON形式で出力してください。
+"""
+
+        try:
+            import time as _time
+            t0 = _time.time()
+
+            # [MIGRATION] generate_content() + response_schema=ExecutionPlan
+            #           → generate_structured() で Structured Outputs に自動変換
+            refined_plan = self.llm.generate_structured(
+                prompt=refine_prompt,
+                response_schema=ExecutionPlan,
+                model=self.model_name,
+                max_completion_tokens=4096,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                temperature=self.config.llm.temperature,
+            )
+
+            elapsed = _time.time() - t0
+            logger.info(f"[API時間] refine_plan LLM: {elapsed:.1f}秒")
+
+            # [MIGRATION] model_validate_json(response.text) → 不要（直接 ExecutionPlan が返る）
+            refined_plan.plan_id = create_plan_id()
+
+            logger.info(f"Plan refined: {refined_plan.plan_id}")
+            return refined_plan
+
+        except Exception as e:
+            logger.error(f"Failed to refine plan: {e}")
+            return plan
+
+
+# =============================================================================
+# ファクトリ関数（変更なし）
+# =============================================================================
+
+def create_planner(
+        config: Optional[GraceConfig] = None,
+        model_name: Optional[str] = None
+) -> Planner:
+    """
+    Plannerインスタンスを作成
+
+    Args:
+        config: GRACE設定
+        model_name: 使用するモデル名
+    Returns:
+        Planner: Plannerインスタンス
+    """
+    return Planner(config=config, model_name=model_name)
+
+
+# =============================================================================
+# エクスポート（変更なし）
+# =============================================================================
+
+__all__ = [
+    "Planner",
+    "create_planner",
+    "PLAN_GENERATION_PROMPT",
+]

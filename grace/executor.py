@@ -820,7 +820,7 @@ class Executor:
             answer = llm.generate_content(
                 prompt=prompt,
                 temperature=0.0,
-                max_tokens=5,
+                max_completion_tokens=5,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
             ).strip().upper()
 
             elapsed = _time.time() - t0
