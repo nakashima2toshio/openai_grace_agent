@@ -66,8 +66,8 @@ def show_qdrant_search_page():
 
         if collections_info:
             collections_df = pd.DataFrame(collections_info)
-            # FIXED: use_container_width=True を width='stretch' に変更
-            st.dataframe(collections_df, width='stretch', hide_index=True)
+            # FIXED: use_container_width=True を use_container_width=True に変更
+            st.dataframe(collections_df, use_container_width=True, hide_index=True)
             st.caption(f"✅ 合計 {len(collections_info)} 個のコレクションが見つかりました")
 
             # 詳細情報を個別に取得して表示
@@ -168,10 +168,10 @@ def show_qdrant_search_page():
                 st.caption(f"📈 表示: {len(data_list)} 件 / 総ポイント数: {total_points}")
 
                 # データフレーム表示（スクロール可能）
-                # FIXED: use_container_width=True を width='stretch' に変更
+                # FIXED: use_container_width=True を use_container_width=True に変更
                 st.dataframe(
                     df_preview,
-                    width='stretch',
+                    use_container_width=True,
                     hide_index=True,
                     height=600,  # スクロール可能な高さ
                     column_config={
@@ -202,9 +202,9 @@ def show_qdrant_search_page():
 
     col_search, col_clear = st.columns([4, 1])
     with col_search:
-        do_search = st.button("🔍 検索実行", type="primary", width='stretch')
+        do_search = st.button("🔍 検索実行", type="primary", use_container_width=True)
     with col_clear:
-        if st.button("🗑️ クリア", width='stretch'):
+        if st.button("🗑️ クリア", use_container_width=True):
             st.session_state.search_query = ""
             st.rerun()
 

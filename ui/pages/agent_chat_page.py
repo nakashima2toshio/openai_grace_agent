@@ -86,7 +86,7 @@ def show_agent_chat_page():
                         # データフレーム表示（スクロール可能）
                         st.dataframe(
                             df_preview,
-                            use_container_width=True,
+                            use_container_width=True,  # [FIX] width='stretch' → use_container_width=True
                             hide_index=True,
                             height=600,  # スクロール可能な高さ
                             column_config={
@@ -284,4 +284,3 @@ def show_agent_chat_page():
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
                 logger.error(f"Chat Error: {e}", exc_info=True)
-

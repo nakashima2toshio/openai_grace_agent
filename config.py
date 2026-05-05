@@ -409,21 +409,20 @@ class CohereConfig:
 # ===================================================================
 
 class GeminiConfig:
-    """Gemini 3 API設定"""
+    """OpenAI モデル設定（[MIGRATION] GeminiConfig → OpenAI）"""
 
-    # 利用可能なモデル一覧
+    # 利用可能なモデル一覧 [MIGRATION] Gemini → OpenAI
     AVAILABLE_MODELS: List[str] = [
-        "gemini-3-flash-preview",          # デフォルト（Gemini 3 Flash）
-        "gemini-2.5-flash",
-        "gemini-3-pro-preview",
-        "gemini-3-pro-image-preview",
-        "gemini-2.5-flash-preview",
-        "gemini-2.5-pro-preview",
-        "gemini-2.0-flash",
+        "gpt-5.4-mini",        # デフォルト推奨（最新・高速）
+        "gpt-4o-mini",         # 高速・低コスト
+        "gpt-4o",              # 最高性能
+        "gpt-4.1",             # GPT-4.1
+        "gpt-4.1-mini",        # GPT-4.1 軽量版
+        "o1-mini",             # 推論特化
     ]
 
-    # デフォルトモデル
-    DEFAULT_MODEL: str = "gemini-3-flash-preview"
+    # デフォルトモデル [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
+    DEFAULT_MODEL: str = "gpt-5.4-mini"
 
     # Embeddingモデル
     EMBEDDING_MODEL: str = "gemini-embedding-001"

@@ -75,7 +75,7 @@ DEFAULT_VECTOR_SIZE = QdrantConfig.DEFAULT_VECTOR_SIZE
 # =====================================================
 # Gemini 3 Migration: プロバイダー設定
 # =====================================================
-DEFAULT_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "gemini")  # "gemini" or "openai"
+DEFAULT_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")  # [MIGRATION] "gemini" → "openai"
 
 # プロバイダー別のデフォルト設定
 PROVIDER_DEFAULTS = {
@@ -563,7 +563,7 @@ def embed_texts(
         埋め込みベクトルのリスト
     """
     # Gemini統合関数に委譲
-    return embed_texts_unified(texts, provider="gemini", batch_size=batch_size)
+    return embed_texts_unified(texts, provider="openai", batch_size=batch_size)  # [MIGRATION] "gemini" → "openai"
 
 
 def embed_query(
@@ -583,7 +583,7 @@ def embed_query(
         埋め込みベクトル
     """
     # Gemini統合関数に委譲
-    return embed_query_unified(text, provider="gemini")
+    return embed_query_unified(text, provider="openai")  # [MIGRATION] "gemini" → "openai"
 
 
 # =====================================================
