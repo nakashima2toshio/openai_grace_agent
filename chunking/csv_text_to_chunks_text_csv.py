@@ -110,13 +110,10 @@ def _normalize_whitespace(text: str) -> str:
     - 改行(\n)を半角スペースに置換
     - 連続する空白を1つに正規化
     - 先頭・末尾の空白を削除
-
     Args:
         text: 正規化対象テキスト
-
     Returns:
         正規化されたテキスト
-
     Examples:
         _normalize_whitespace("行1\\n\\n行2")
         '行1 行2'

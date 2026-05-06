@@ -4,7 +4,7 @@
 """
 down_load_non_qa_rag_data_from_huggingface.py - 非Q&A型RAGデータ処理ツール
 ===============================================
-起動: streamlit run down_load_non_qa_rag_data_from_huggingface.py --server.port=8502
+起動: uv run streamlit run down_load_non_qa_rag_data_from_huggingface.py --server.port=8502
 
 【主要機能】
 ✅ 日本語・英語データセットの処理

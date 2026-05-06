@@ -206,7 +206,12 @@ class OpenAIClient(LLMClient):
 
     def generate_content(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         model = model or self.default_model
-        messages = [{"role": "user", "content": prompt}]
+        # system= kwarg を messages 先頭の system ロールに変換（OpenAI 形式）
+        system = kwargs.pop("system", None)
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
         # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
@@ -221,7 +226,12 @@ class OpenAIClient(LLMClient):
         **kwargs,
     ) -> BaseModel:
         model = model or self.default_model
-        messages = [{"role": "user", "content": prompt}]
+        # system= kwarg を messages 先頭の system ロールに変換（OpenAI 形式）
+        system = kwargs.pop("system", None)
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
         # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")

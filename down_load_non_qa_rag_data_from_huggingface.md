@@ -1,7 +1,8 @@
-# down_load_non_qa_rag_data_from_huggingface.py - 非Q&A型RAGデータ処理ツール ドキュメント
+## 非Q&A型RAGデータ処理ツール ドキュメント
+- (down_load_non_qa_rag_data_from_huggingface.py)
 
 **Version 1.0** | 最終更新: 2026-02-16
-
+![dl_huggingface_img.png](assets/dl_huggingface_img.png)
 ---
 
 ## 目次
