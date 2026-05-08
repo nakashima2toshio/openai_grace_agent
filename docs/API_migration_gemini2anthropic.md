@@ -7,7 +7,7 @@
 **作成日**: 2026-04-20
 **Anthropic 移植完了**: 2026-04-25
 **OpenAI 移植完了**: 2026-05-05
-**最終更新**: 2026-05-08
+**最終更新**: 2026-05-08（2026-0505-1 コミット反映）
 
 ---
 
@@ -27,11 +27,12 @@
 
 | 項目 | 内容 |
 |---|---|
-| 移植実施ファイル | **主要 5 ファイル**（抽象化レイヤーの差し替えが中心） |
-| LLM デフォルト | `claude-sonnet-4-6` → **`gpt-4o-mini`** |
+| 移植実施ファイル | **主要 8 ファイル**（抽象化レイヤー差し替え＋残存 Gemini コード除去） |
+| LLM デフォルト | `claude-sonnet-4-6` → **`gpt-4o-mini`**（一部機能は `gpt-5.4-mini`） |
 | Embedding | 変更なし（OpenAI `text-embedding-3-large` を継続） |
 | 後方互換性 | `AnthropicClient` / `GeminiClient` クラスはそのまま残存 |
 | Qdrant 互換性 | 変更なし（コレクション再作成不要） |
+| インポートパス | `helper_llm` → **`helper.helper_llm`**（モジュール配置変更） |
 
 ---
 
@@ -738,10 +739,13 @@ for tc, result in zip(tool_calls, results):                            # ② ×N
 
 | 用途 | Anthropic（移植元） | OpenAI（移植先） |
 |---|---|---|
-| 最高性能 | `claude-opus-4-7` | `gpt-4o` |
-| バランス型（推奨） | `claude-sonnet-4-6` | **`gpt-4o-mini`**（デフォルト） |
+| 最高性能 | `claude-opus-4-7` | `gpt-4o` / `gpt-4.1` |
+| バランス型（推奨） | `claude-sonnet-4-6` | **`gpt-4o-mini`**（デフォルト）/ `gpt-4.1-mini` |
+| Q/A生成・非同期バッチ | `claude-sonnet-4-6` | **`gpt-5.4-mini`**（`qa_generation/pipeline.py` デフォルト） |
 | 高速・低コスト | `claude-haiku-4-5-20251001` | `gpt-4o-mini` |
 | Embedding | `text-embedding-3-large`（OpenAI）変更なし | `text-embedding-3-large`（継続） |
+
+> **注意**: `gpt-5.4-mini` 以降のモデルでは `max_tokens` パラメータが廃止され、`max_completion_tokens` が必須となった。`helper/helper_llm.py` の `OpenAIClient` で自動変換しているが、直接 API を呼ぶ場合は注意が必要。
 
 ---
 
@@ -827,9 +831,59 @@ if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
     kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
 ```
 
+`OpenAIClient.generate_content()` / `generate_structured()` の両方に実装済み（2026-0505-1 追加）。
+
+---
+
+#### コツ E：インポートパスは `helper.helper_llm`（モジュール配置に注意）
+
+helper_llm.py が `helper/` ディレクトリに移動したため、インポートパスが変わった。
+
+```python
+# ❌ 旧インポート（Anthropic 移植時の表記）
+from helper_llm import create_llm_client
+
+# ✅ 正しいインポート（openai_grace_agent）
+from helper.helper_llm import create_llm_client
+```
+
+確認コマンド：
+
+```bash
+grep -rn "from helper_llm import\|import helper_llm" --include="*.py" .
+# 何も出なければ合格
+```
+
+---
+
+#### コツ F：非同期バッチ（`chunking/async_api_client.py`）の JSON 取得方法変更
+
+Gemini では `response.text` が JSON 文字列を返していたが、OpenAI Structured Outputs では `choice.message.parsed` が Pydantic インスタンスを返す。
+
+```python
+# ❌ Gemini 形式（不完全 JSON 検出が必要だった）
+result_text = response.text                    # JSON 文字列
+if not self._is_valid_json(result_text):       # 手動バリデーション必要
+    raise ValueError("Incomplete JSON")
+
+# ✅ OpenAI 形式（Structured Outputs → 常に完全な Pydantic インスタンス）
+choice = response.choices[0]
+if self._is_truncated(choice.finish_reason):   # finish_reason=="length" のみ確認
+    raise ValueError("Response truncated")
+
+parsed = choice.message.parsed                 # Pydantic インスタンス（自動パース済み）
+if parsed is None:
+    raise ValueError(f"Refusal: {choice.message.refusal}")
+result_json = json.dumps(parsed.model_dump(), ensure_ascii=False)
+```
+
+OpenAI Structured Outputs は不完全 JSON を返さないため、`_is_valid_json()` / `_is_truncated_response()` メソッドは不要になり削除した。
+
 ---
 
 ### 6-8. 移植対象ファイル一覧（Anthropic → OpenAI）
+
+#### フェーズ② 第1波（2026-04-25〜27 / `2026-0427-1` コミット）
 
 | ファイル | 変更種別 | 主な変更内容 |
 |---|---|---|
@@ -838,6 +892,17 @@ if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
 | `config.yml` | 設定変更 | `models.default: "gpt-4o-mini"`, `provider.default_llm: "openai"`, `openai` セクション追加 |
 | `services/agent_service.py` | ループ書き直し | ReAct ループを OpenAI Tool Calls 形式に書き直し |
 | `services/config_service.py` | 設定変更 | `_get_default_config()` を OpenAI デフォルトに変更 |
+
+#### フェーズ② 第2波（2026-05-05 / `2026-0505-1` コミット）
+
+| ファイル | 変更種別 | 主な変更内容 |
+|---|---|---|
+| `helper/helper_llm.py` | バグ修正 | `generate_content()` / `generate_structured()` で `max_tokens` → `max_completion_tokens` 自動変換を追加（`gpt-5.4-mini` 対応） |
+| `chunking/async_api_client.py` | 完全書き直し | `genai.Client()` → `OpenAI()`、`generate_content()` + `response_schema` → `beta.chat.completions.parse(response_format=)`、不完全 JSON 検出削除 |
+| `grace/executor.py` | 残存 Gemini コード除去 | `_check_rag_relevance_with_llm()` 内の `genai.Client()` を `create_llm_client("openai")` に置き換え |
+| `qa_generation/pipeline.py` | デフォルトモデル変更 | デフォルトを `"claude-sonnet-4-6"` → `"gpt-5.4-mini"` に変更、provider を `"anthropic"` → `"openai"` に変更 |
+| `services/agent_service.py` | インポートパス修正 | `from helper_llm import` → `from helper.helper_llm import` |
+| `tests/helpers/test_helper_llm.py` | インポートパス修正 | `import helper_llm` → `import helper.helper_llm as helper_llm` |
 
 ---
 
@@ -854,17 +919,24 @@ Gemini API (google.genai)
         ▼
 Anthropic API (anthropic)
         │
-        │  2026-05-04〜05（第6部参照）
+        │  2026-04-25〜05-05 第1波（第6部参照）
         │  ・client.messages.create() → client.chat.completions.create()
         │  ・system= パラメータ → messages 先頭に role:"system"
         │  ・Tool Use(input_schema) → Tool Calls(parameters)
         │  ・stop_reason=="tool_use" → finish_reason=="tool_calls"
         │  ・tool_result(role:user 1件) → role:tool 個別追記
         │  ・構造化出力: Tool Use → beta.chat.completions.parse()
+        │
+        │  2026-05-05 第2波（6-8 第2波参照）
+        │  ・max_tokens → max_completion_tokens（gpt-5.4-mini 対応）
+        │  ・chunking/async_api_client.py の genai 残存コードを完全除去
+        │  ・grace/executor.py の genai 残存コードを完全除去
+        │  ・インポートパス: helper_llm → helper.helper_llm
         ▼
 OpenAI API (openai)  ← 現在の本番環境
         │
         └── Embedding: text-embedding-3-large（変更なし）
+        └── デフォルト: gpt-4o-mini（agent）/ gpt-5.4-mini（Q/A生成バッチ）
 ```
 
 ### 3段階移植の差異まとめ
