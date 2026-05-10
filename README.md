@@ -1,7 +1,15 @@
-# Agent RAG (Gemini) プロジェクト
-## (1) Agent
+# 自律型Agent + RAG (OpenAI API版) プロジェクト
+## (1) 自律型Agent　（OpenAI API利用、スクラッチで作成）
+### (1-1) 計画策定（Plan）→ 実行（Execute）→ 信頼度評価（Confidence）
+### → 介入判定（Intervention）→ リプラン（Replan）
+
 ![lp_image.png](assets/lp_img.png)
-## (2) Chunking
+
+## (2) Chunking（意味ある文章に分割する）
+### (2-1) 評価用データ：HuggingFaceからダウンロード：
+### (2-2) RAG: Chunkデータの作成
+### (2-3) RAG: Qdrant(ベクターDB)への登録、検索
+
 ![chunk_image.png](assets/img_csv_text_to_chunks_text_csv.png)
 
 > **はじめにお読みください**
@@ -19,7 +27,7 @@
 ## （自律型Agent）grace_chat_page.py
 
 画面： agent_rag.py
-
+![img.png](assets/lp_gamen_img.png)
 
 個々のドキュメントは、機能ディレクトリー/doc/*.md を参照あれ。
 
