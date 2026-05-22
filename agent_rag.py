@@ -154,11 +154,11 @@ def main():
     """メインアプリケーション - 画面選択"""
 
     # ページ設定
-    st.set_page_config(page_title="Agent RAG(Anthropic)", page_icon="🤖", layout="wide")
+    st.set_page_config(page_title="Agent RAG(OpenAI)", page_icon="🤖", layout="wide")
 
     # サイドバー：画面選択
     with st.sidebar:
-        st.title("Agent RAG (Anthropic)")
+        st.title("Agent RAG (OpenAI)")
         st.divider()
 
         # メニュー見出し
@@ -187,7 +187,7 @@ def main():
             }[x],
             label_visibility="collapsed",
         )
-        st.markdown("全ソースは： [GitHub: nakashima2toshio/anthropic_agent_rag](https://github.com/nakashima2toshio/anthropic_agent_rag)")
+        st.markdown("全ソースは： [GitHub: nakashima2toshio/openai_agent_rag](https://github.com/nakashima2toshio/openai_agent_rag)")
         st.divider()
 
     # 選択された画面を表示
