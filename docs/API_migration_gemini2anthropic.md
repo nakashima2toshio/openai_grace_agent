@@ -1,14 +1,19 @@
-# Anthropic API 移植完了報告書
+# API 移植完了報告書（Gemini → Anthropic → OpenAI）
 
-**プロジェクト**: `anthropic_grace_agent`
+**プロジェクト**: `openai_grace_agent`（旧: `anthropic_grace_agent`）
 **移植元**: Gemini API (`google.genai`)
-**移植先**: Anthropic API (`anthropic`) + OpenAI Embedding API
+**中間**: Anthropic API (`anthropic`) + OpenAI Embedding API
+**移植先（最終）**: OpenAI API (`openai`) + OpenAI Embedding API
 **作成日**: 2026-04-20
-**完了日**: 2026-04-25
+**Anthropic 移植完了**: 2026-04-25
+**OpenAI 移植完了**: 2026-05-05
+**最終更新**: 2026-05-08（2026-0505-1 コミット反映）
 
 ---
 
 ## 移植完了サマリー
+
+### フェーズ① Gemini → Anthropic（2026-04-20〜25）
 
 | 項目 | 内容 |
 |---|---|
@@ -17,6 +22,17 @@
 | 変更不要ファイル | 5 ファイル（Qdrant UI 系・間接変更のみ） |
 | Embedding | Anthropic に Embedding API なし → **OpenAI `text-embedding-3-large` (3072次元)** |
 | Qdrant 互換性 | Gemini / OpenAI ともに **3072次元** → **コレクション再作成不要** |
+
+### フェーズ② Anthropic → OpenAI（2026-04-25〜05-05）
+
+| 項目 | 内容 |
+|---|---|
+| 移植実施ファイル | **主要 8 ファイル**（抽象化レイヤー差し替え＋残存 Gemini コード除去） |
+| LLM デフォルト | `claude-sonnet-4-6` → **`gpt-4o-mini`**（一部機能は `gpt-5.4-mini`） |
+| Embedding | 変更なし（OpenAI `text-embedding-3-large` を継続） |
+| 後方互換性 | `AnthropicClient` / `GeminiClient` クラスはそのまま残存 |
+| Qdrant 互換性 | 変更なし（コレクション再作成不要） |
+| インポートパス | `helper_llm` → **`helper.helper_llm`**（モジュール配置変更） |
 
 ---
 
@@ -544,5 +560,402 @@ response = client.embeddings.create(
 
 ---
 
-*本ドキュメントは `anthropic_grace_agent` 移植作業の完了報告書兼技術参照資料として使用する。*
-*以後の Gemini → Anthropic 移植プロジェクトでも本ドキュメントのコツ集を再利用可能。*
+---
+
+## 第6部　Anthropic → OpenAI 移植記録（2026-05追加）
+
+---
+
+### 6-1. クライアント初期化
+
+| 項目 | Anthropic（移植元） | OpenAI（移植先） |
+|---|---|---|
+| SDK | `anthropic` | `openai` |
+| インポート | `import anthropic` | `from openai import OpenAI` |
+| クライアント生成 | `anthropic.Anthropic(api_key=...)` | `OpenAI(api_key=...)` |
+| API キー環境変数 | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` |
+
+```python
+# Anthropic
+import anthropic
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# OpenAI
+from openai import OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+```
+
+---
+
+### 6-2. テキスト生成（シングルターン）
+
+| 項目 | Anthropic | OpenAI |
+|---|---|---|
+| メソッド | `client.messages.create()` | `client.chat.completions.create()` |
+| システムプロンプト | `system="..."` パラメータ（messages 外） | `messages` 先頭に `{"role":"system","content":"..."}` として挿入 |
+| 出力トークン上限 | `max_tokens=...`（必須） | `max_completion_tokens=...`（新モデルは `max_tokens` 廃止） |
+| レスポンス取得 | `response.content[0].text` | `response.choices[0].message.content` |
+| 終了理由 | `response.stop_reason` | `response.choices[0].finish_reason` |
+
+```python
+# Anthropic
+response = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=4096,
+    system="あなたは...",      # messages の外
+    messages=[{"role": "user", "content": prompt}]
+)
+answer = response.content[0].text
+
+# OpenAI
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    max_completion_tokens=4096,
+    messages=[
+        {"role": "system", "content": "あなたは..."},  # messages の中に挿入
+        {"role": "user",   "content": prompt}
+    ]
+)
+answer = response.choices[0].message.content
+```
+
+---
+
+### 6-3. 構造化出力
+
+| 項目 | Anthropic | OpenAI |
+|---|---|---|
+| 方式 | Tool Use（`tool_choice` 強制） | `client.beta.chat.completions.parse()` |
+| スキーマ渡し方 | `input_schema=Schema.model_json_schema()` | `response_format=PydanticClass` を直接渡す |
+| レスポンス取得 | `tool_block.input` → `model_validate()` | `response.choices[0].message.parsed` |
+| SDK 自動パース | ツールブロックの抽出は手動 | **SDK が自動パース** |
+
+```python
+# Anthropic（Tool Use で代替）
+tool_def = {
+    "name"        : "structured_output",
+    "description" : "Return structured data",
+    "input_schema": ExecutionPlan.model_json_schema()
+}
+response = client.messages.create(
+    model="claude-sonnet-4-6", max_tokens=4096,
+    tools=[tool_def],
+    tool_choice={"type": "tool", "name": "structured_output"},
+    messages=[{"role": "user", "content": prompt}]
+)
+tool_block = next(b for b in response.content if b.type == "tool_use")
+plan = ExecutionPlan.model_validate(tool_block.input)
+
+# OpenAI（Structured Outputs）
+response = client.beta.chat.completions.parse(
+    model="gpt-4o-mini",
+    max_completion_tokens=4096,
+    messages=[{"role": "user", "content": prompt}],
+    response_format=ExecutionPlan,   # Pydantic クラスを直接渡す
+)
+plan = response.choices[0].message.parsed   # SDK が自動パース
+```
+
+---
+
+### 6-4. Tool Use（ReAct ループ）
+
+| 項目 | Anthropic | OpenAI |
+|---|---|---|
+| **ツール定義キー** | `"input_schema"` | **`"parameters"`**（OpenAI 標準） |
+| **ツール定義ラッパー** | dict のリスト（`name/description/input_schema`） | `{"type":"function","function":{...}}` でラップ |
+| **終了判定** | `stop_reason == "tool_use"` | **`finish_reason == "tool_calls"`** |
+| **ツール呼び出し取得** | `response.content` から `type=="tool_use"` を抽出 | `message.tool_calls` リストを走査 |
+| **ツール引数取得** | `b.input`（dict） | `json.loads(tc.function.arguments)` |
+| **ツール ID** | `b.id` | `tc.id` |
+| **assistant 追記形式** | `{"role":"assistant","content": response.content}` | `{"role":"assistant","content":...,"tool_calls":[...]}` |
+| **ツール結果の追記** | `role:"user"` に **1件まとめて追記**（`tool_result` タイプ） | `role:"tool"` として **ツールごとに個別追記** |
+
+```python
+# Anthropic（ツール定義）
+tools = [
+    {"name": "search", "description": "...",
+     "input_schema": {"type": "object", "properties": {...}, "required": [...]}}
+]
+
+# OpenAI（ツール定義）
+tools = [
+    {
+        "type"    : "function",
+        "function": {
+            "name"       : "search",
+            "description": "...",
+            "parameters" : {"type": "object", "properties": {...}, "required": [...]}
+        }
+    }
+]
+
+# ─────────────────────────────────
+# Anthropic（ツール結果の追記）：2件1セット
+messages.append({"role": "assistant", "content": response.content})   # ①
+messages.append({                                                       # ②
+    "role"   : "user",
+    "content": [{"type": "tool_result", "tool_use_id": tc_id, "content": result}]
+})
+
+# OpenAI（ツール結果の追記）：assistant + tool ×N
+messages.append({                                                       # ①
+    "role"      : "assistant",
+    "content"   : text or None,
+    "tool_calls": [
+        {"id": tc["id"], "type": "function",
+         "function": {"name": tc["name"], "arguments": json.dumps(tc["input"])}}
+        for tc in tool_calls
+    ]
+})
+for tc, result in zip(tool_calls, results):                            # ② ×N
+    messages.append({
+        "role"        : "tool",
+        "tool_call_id": tc["id"],
+        "content"     : str(result),
+    })
+```
+
+---
+
+### 6-5. Anthropic 固有機能で OpenAI に存在しないもの・変わったもの
+
+| Anthropic 機能 | OpenAI での代替手段 |
+|---|---|
+| `client.messages.create()` | `client.chat.completions.create()` |
+| `system="..."` パラメータ | messages 先頭に `{"role":"system"}` を挿入 |
+| `max_tokens`（必須） | `max_completion_tokens`（新モデルは `max_tokens` 廃止） |
+| `stop_reason == "tool_use"` | `finish_reason == "tool_calls"` |
+| ツール定義 `input_schema` | ツール定義 `parameters` |
+| `response.content` ブロックリスト | `response.choices[0].message` |
+| Tool Use による構造化出力 | `client.beta.chat.completions.parse()` |
+| `response.usage.input_tokens` | `response.usage.prompt_tokens` |
+| `response.usage.output_tokens` | `response.usage.completion_tokens` |
+| `client.messages.count_tokens()` | tiktoken による手動カウント |
+
+---
+
+### 6-6. モデル名対比（Anthropic → OpenAI）
+
+| 用途 | Anthropic（移植元） | OpenAI（移植先） |
+|---|---|---|
+| 最高性能 | `claude-opus-4-7` | `gpt-4o` / `gpt-4.1` |
+| バランス型（推奨） | `claude-sonnet-4-6` | **`gpt-4o-mini`**（デフォルト）/ `gpt-4.1-mini` |
+| Q/A生成・非同期バッチ | `claude-sonnet-4-6` | **`gpt-5.4-mini`**（`qa_generation/pipeline.py` デフォルト） |
+| 高速・低コスト | `claude-haiku-4-5-20251001` | `gpt-4o-mini` |
+| Embedding | `text-embedding-3-large`（OpenAI）変更なし | `text-embedding-3-large`（継続） |
+
+> **注意**: `gpt-5.4-mini` 以降のモデルでは `max_tokens` パラメータが廃止され、`max_completion_tokens` が必須となった。`helper/helper_llm.py` の `OpenAIClient` で自動変換しているが、直接 API を呼ぶ場合は注意が必要。
+
+---
+
+### 6-7. 移植コツ（Anthropic → OpenAI 固有）
+
+#### コツ A：`generate_with_tools()` の抽象化で呼び出し側を無変更にする
+
+```python
+# helper_llm.py に一度だけ実装（呼び出し側は変更なし）
+class OpenAIClient(LLMClient):
+    def generate_with_tools(self, messages, tools, system="", model=None, **kwargs):
+        # system を messages 先頭に挿入
+        full_messages = []
+        if system:
+            full_messages.append({"role": "system", "content": system})
+        full_messages.extend(messages)
+
+        # ツール定義を OpenAI 形式に変換（"input_schema" → "parameters"）
+        openai_tools = [
+            {"type": "function", "function": {
+                "name"       : t["name"],
+                "description": t.get("description", ""),
+                "parameters" : t.get("input_schema", t.get("parameters", {})),
+            }}
+            for t in tools
+        ] if tools else None
+
+        response = self.client.chat.completions.create(
+            model=model or self.default_model,
+            messages=full_messages,
+            tools=openai_tools or openai.NOT_GIVEN,
+        )
+        msg = response.choices[0].message
+        tool_calls = [
+            {"name": tc.function.name, "input": json.loads(tc.function.arguments), "id": tc.id}
+            for tc in (msg.tool_calls or [])
+        ]
+        return msg.content or "", tool_calls, response.choices[0].finish_reason
+```
+
+#### コツ B：assistant メッセージに `tool_calls` フィールドを含める
+
+```python
+# ❌ Anthropic 形式（OpenAI では無効）
+messages.append({"role": "assistant", "content": response.content})
+
+# ✅ OpenAI 形式（tool_calls フィールド必須）
+messages.append({
+    "role"      : "assistant",
+    "content"   : text or None,
+    "tool_calls": [
+        {"id": tc["id"], "type": "function",
+         "function": {"name": tc["name"], "arguments": json.dumps(tc["input"])}}
+        for tc in tool_calls
+    ]
+})
+```
+
+#### コツ C：ツール結果は `role:"tool"` として個別追記
+
+```python
+# ❌ Anthropic 形式（OpenAI では無効）
+messages.append({
+    "role"   : "user",
+    "content": [{"type": "tool_result", "tool_use_id": id, "content": result}]
+})
+
+# ✅ OpenAI 形式（ツールごとに個別追記）
+for tc, result in zip(tool_calls, results):
+    messages.append({
+        "role"        : "tool",
+        "tool_call_id": tc["id"],
+        "content"     : str(result),
+    })
+```
+
+#### コツ D：`max_tokens` → `max_completion_tokens`（新モデル対応）
+
+```python
+# gpt-5.4-mini 以降は max_tokens が廃止されている
+# helper_llm.py の OpenAIClient で自動変換するのが安全
+if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
+    kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+```
+
+`OpenAIClient.generate_content()` / `generate_structured()` の両方に実装済み（2026-0505-1 追加）。
+
+---
+
+#### コツ E：インポートパスは `helper.helper_llm`（モジュール配置に注意）
+
+helper_llm.py が `helper/` ディレクトリに移動したため、インポートパスが変わった。
+
+```python
+# ❌ 旧インポート（Anthropic 移植時の表記）
+from helper_llm import create_llm_client
+
+# ✅ 正しいインポート（openai_grace_agent）
+from helper.helper_llm import create_llm_client
+```
+
+確認コマンド：
+
+```bash
+grep -rn "from helper_llm import\|import helper_llm" --include="*.py" .
+# 何も出なければ合格
+```
+
+---
+
+#### コツ F：非同期バッチ（`chunking/async_api_client.py`）の JSON 取得方法変更
+
+Gemini では `response.text` が JSON 文字列を返していたが、OpenAI Structured Outputs では `choice.message.parsed` が Pydantic インスタンスを返す。
+
+```python
+# ❌ Gemini 形式（不完全 JSON 検出が必要だった）
+result_text = response.text                    # JSON 文字列
+if not self._is_valid_json(result_text):       # 手動バリデーション必要
+    raise ValueError("Incomplete JSON")
+
+# ✅ OpenAI 形式（Structured Outputs → 常に完全な Pydantic インスタンス）
+choice = response.choices[0]
+if self._is_truncated(choice.finish_reason):   # finish_reason=="length" のみ確認
+    raise ValueError("Response truncated")
+
+parsed = choice.message.parsed                 # Pydantic インスタンス（自動パース済み）
+if parsed is None:
+    raise ValueError(f"Refusal: {choice.message.refusal}")
+result_json = json.dumps(parsed.model_dump(), ensure_ascii=False)
+```
+
+OpenAI Structured Outputs は不完全 JSON を返さないため、`_is_valid_json()` / `_is_truncated_response()` メソッドは不要になり削除した。
+
+---
+
+### 6-8. 移植対象ファイル一覧（Anthropic → OpenAI）
+
+#### フェーズ② 第1波（2026-04-25〜27 / `2026-0427-1` コミット）
+
+| ファイル | 変更種別 | 主な変更内容 |
+|---|---|---|
+| `helper/helper_llm.py` | クラス追加・デフォルト変更 | `OpenAIClient` 追加、`create_llm_client()` デフォルトを `"openai"` に変更 |
+| `grace/config.py` | 設定変更 | `LLMConfig.provider = "openai"`, `model = "gpt-4o-mini"` |
+| `config.yml` | 設定変更 | `models.default: "gpt-4o-mini"`, `provider.default_llm: "openai"`, `openai` セクション追加 |
+| `services/agent_service.py` | ループ書き直し | ReAct ループを OpenAI Tool Calls 形式に書き直し |
+| `services/config_service.py` | 設定変更 | `_get_default_config()` を OpenAI デフォルトに変更 |
+
+#### フェーズ② 第2波（2026-05-05 / `2026-0505-1` コミット）
+
+| ファイル | 変更種別 | 主な変更内容 |
+|---|---|---|
+| `helper/helper_llm.py` | バグ修正 | `generate_content()` / `generate_structured()` で `max_tokens` → `max_completion_tokens` 自動変換を追加（`gpt-5.4-mini` 対応） |
+| `chunking/async_api_client.py` | 完全書き直し | `genai.Client()` → `OpenAI()`、`generate_content()` + `response_schema` → `beta.chat.completions.parse(response_format=)`、不完全 JSON 検出削除 |
+| `grace/executor.py` | 残存 Gemini コード除去 | `_check_rag_relevance_with_llm()` 内の `genai.Client()` を `create_llm_client("openai")` に置き換え |
+| `qa_generation/pipeline.py` | デフォルトモデル変更 | デフォルトを `"claude-sonnet-4-6"` → `"gpt-5.4-mini"` に変更、provider を `"anthropic"` → `"openai"` に変更 |
+| `services/agent_service.py` | インポートパス修正 | `from helper_llm import` → `from helper.helper_llm import` |
+| `tests/helpers/test_helper_llm.py` | インポートパス修正 | `import helper_llm` → `import helper.helper_llm as helper_llm` |
+
+---
+
+## 第7部　3段階移植の全体概観
+
+```
+Gemini API (google.genai)
+        │
+        │  2026-04-20〜25（第1部〜第5部参照）
+        │  ・client.models.generate_content() → client.messages.create()
+        │  ・response_schema → Tool Use
+        │  ・chat（自動管理） → messages リスト（自前管理）
+        │  ・Embedding: gemini-embedding-001 → text-embedding-3-large(OpenAI)
+        ▼
+Anthropic API (anthropic)
+        │
+        │  2026-04-25〜05-05 第1波（第6部参照）
+        │  ・client.messages.create() → client.chat.completions.create()
+        │  ・system= パラメータ → messages 先頭に role:"system"
+        │  ・Tool Use(input_schema) → Tool Calls(parameters)
+        │  ・stop_reason=="tool_use" → finish_reason=="tool_calls"
+        │  ・tool_result(role:user 1件) → role:tool 個別追記
+        │  ・構造化出力: Tool Use → beta.chat.completions.parse()
+        │
+        │  2026-05-05 第2波（6-8 第2波参照）
+        │  ・max_tokens → max_completion_tokens（gpt-5.4-mini 対応）
+        │  ・chunking/async_api_client.py の genai 残存コードを完全除去
+        │  ・grace/executor.py の genai 残存コードを完全除去
+        │  ・インポートパス: helper_llm → helper.helper_llm
+        ▼
+OpenAI API (openai)  ← 現在の本番環境
+        │
+        └── Embedding: text-embedding-3-large（変更なし）
+        └── デフォルト: gpt-4o-mini（agent）/ gpt-5.4-mini（Q/A生成バッチ）
+```
+
+### 3段階移植の差異まとめ
+
+| 操作 | Gemini | Anthropic | OpenAI（現在） |
+|---|---|---|---|
+| クライアント | `genai.Client()` | `anthropic.Anthropic()` | `OpenAI()` |
+| テキスト生成 | `models.generate_content()` | `messages.create()` | `chat.completions.create()` |
+| system prompt | `config.system_instruction` | `system=` パラメータ | `messages[0].role="system"` |
+| 構造化出力 | `response_schema=PydanticClass` | Tool Use 強制 | `beta.parse(response_format=)` |
+| ツール定義キー | `"parameters"` | `"input_schema"` | `"parameters"`（戻る） |
+| ツール検出 | `part.function_call` 走査 | `stop_reason=="tool_use"` | `finish_reason=="tool_calls"` |
+| ツール結果 | `Part.from_function_response()` | `role:"user"` にまとめ | `role:"tool"` 個別追記 |
+| 終了判定 | function_call なし | `"end_turn"` | `"stop"` |
+| レスポンス取得 | `response.text` | `response.content[0].text` | `response.choices[0].message.content` |
+| トークン数 | `response.usage_metadata.prompt_token_count` | `response.usage.input_tokens` | `response.usage.prompt_tokens` |
+| 会話管理 | `chat` オブジェクト（自動） | `messages` リスト（自前） | `messages` リスト（自前、同じ） |
+
+---
+
+*本ドキュメントは `openai_grace_agent` 移植作業の完了報告書兼技術参照資料として使用する。*
+*Gemini → Anthropic → OpenAI の3段階移植の完全な記録として後続プロジェクトでも再利用可能。*
