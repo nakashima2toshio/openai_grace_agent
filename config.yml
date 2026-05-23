@@ -1,7 +1,7 @@
 # config.yml
 # [MIGRATION] 2026-04-25 Anthropic API → OpenAI API 移植対応
 # 変更概要:
-#   - models.default:           "claude-sonnet-4-6" → "gpt-4o-mini"
+#   - models.default:           "claude-sonnet-4-6" → "gpt-4o-mini" → "gpt-5.4-mini"
 #   - models.available:         Claude モデル → OpenAI モデル
 #   - provider.default_llm:     "anthropic" → "openai"
 #   - provider.default_embedding: "openai" のまま継続（変更不要）
@@ -14,18 +14,19 @@
 # LLM モデル設定
 # =====================================================
 models:
-  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
-  default: "gpt-4o-mini"
+  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini" → "gpt-5.4-mini"
+  default: "gpt-5.4-mini"
   available:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
-    - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
+    - "gpt-4o-mini"               # 旧デフォルト（コスト効率）
+    - "gpt-5.4-mini"              # デフォルト推奨（最新・高コスト効率）
     - "gpt-4.1"                   # GPT-4.1（最新）
     - "gpt-4.1-mini"              # GPT-4.1 軽量版
     - "o1-mini"                   # 推論特化
 
   categories:
     powerful:  ["gpt-4o", "gpt-4.1"]
-    balanced:  ["gpt-4o-mini", "gpt-4.1-mini"]  # デフォルト推奨
+    balanced:  ["gpt-5.4-mini", "gpt-4o-mini", "gpt-4.1-mini"]  # デフォルト推奨
     reasoning: ["o1-mini"]
     # Claude カテゴリ（後方互換のため残存 - 削除可）
     legacy_claude:
@@ -84,10 +85,11 @@ model_pricing:
 # =====================================================
 openai:
   # LLM設定
-  default_model: "gpt-4o-mini"
+  default_model: "gpt-5.4-mini"
   available_models:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
-    - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
+    - "gpt-4o-mini"               # 旧デフォルト（コスト効率）
+    - "gpt-5.4-mini"              # デフォルト推奨（最新・高コスト効率）
     - "gpt-4.1"                   # GPT-4.1（最新）
     - "gpt-4.1-mini"              # GPT-4.1 軽量版
     - "o1-mini"                   # 推論特化
@@ -99,6 +101,9 @@ openai:
 
   # 料金（$/1M tokens）
   pricing:
+    gpt-5.4-mini:
+      input: 0.75
+      output: 4.50
     gpt-4o:
       input: 2.50
       output: 10.00
@@ -268,7 +273,7 @@ provider:
 
   # OpenAI 設定（LLM + Embedding）
   openai:
-    llm_model: "gpt-4o-mini"                    # デフォルトモデル
+    llm_model: "gpt-5.4-mini"                   # デフォルトモデル
     embedding_model: "text-embedding-3-large"   # 変更なし
     embedding_dims: 3072                         # 変更なし
 
