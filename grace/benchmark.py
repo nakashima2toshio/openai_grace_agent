@@ -273,6 +273,10 @@ class BenchmarkLogger:
                 session.rag_step_count += 1
                 session.sources_total  += len(sources)
 
+        # Fallback: overall_confidence が 0 だがステップ信頼度がある場合は平均を使用
+        if session.overall_confidence == 0.0 and session.step_confidences:
+            session.overall_confidence = sum(session.step_confidences) / len(session.step_confidences)
+
         session.intervention_level = self._score_to_intervention(session.overall_confidence)
 
     def _score_to_intervention(self, score: float) -> str:
@@ -413,12 +417,26 @@ class BenchmarkRunner:
     @staticmethod
     def _call_execute(executor: Any, plan: Any) -> Any:
         import types
-        result = executor.execute(plan)
+        # Prefer blocking execute_plan (always computes overall_confidence).
+        # Fall back to execute_plan_generator (streaming), then execute.
+        if hasattr(executor, "execute_plan"):
+            result = executor.execute_plan(plan)
+        elif hasattr(executor, "execute_plan_generator"):
+            result = executor.execute_plan_generator(plan)
+        elif hasattr(executor, "execute"):
+            result = executor.execute(plan)
+        else:
+            raise AttributeError("Executor has no execute_plan / execute_plan_generator / execute method")
+
+        # Generator: StopIteration.value (return value) を優先して捕捉する
         if isinstance(result, types.GeneratorType):
-            last = None
-            for item in result:
-                last = item
-            return last
+            last, ret = None, None
+            try:
+                while True:
+                    last = next(result)
+            except StopIteration as e:
+                ret = e.value
+            return ret if ret is not None else last
         return result
 
     def run_query_set(
