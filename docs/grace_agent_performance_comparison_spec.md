@@ -1,8 +1,8 @@
 # Agent性能比較 — 比較・調査仕様書
 
-**バージョン**: 1.1  
+**バージョン**: 1.2  
 **作成日**: 2026-05-24  
-**更新日**: 2026-05-24（v1.0→v1.1: 各リポジトリ config.py 調査に基づきモデル名・Embedding情報を修正）  
+**更新日**: 2026-05-24（v1.1→v1.2: config.py を spec v1.0 の意図通りモデル名に変更したため spec を同期更新）  
 **対象リポジトリ**: openai / gemini / ollama / anthropic `_grace_agent`
 
 ---
@@ -19,9 +19,9 @@ GRACE（Guided Reasoning with Adaptive Confidence Execution）エージェント
 
 | エージェント | プロバイダー | デフォルトLLMモデル | Embeddingモデル | Embedding次元 | 実行環境 |
 |---|---|---|---|---|---|
-| `openai_grace_agent` | OpenAI | `gpt-4o-mini` | `text-embedding-3-large` | 3072 | クラウド API |
-| `gemini_grace_agent` | Google Gemini | `gemini-3-flash-preview` | `gemini-embedding-001` | 3072 | クラウド API |
-| `ollama_grace_agent` | Ollama (ローカル) | `llama3.2` | `nomic-embed-text` | **768** | ローカル推論 |
+| `openai_grace_agent` | OpenAI | `gpt-5.4-mini` | `text-embedding-3-large` | 3072 | クラウド API |
+| `gemini_grace_agent` | Google Gemini | `gemini-2.0-flash` | `gemini-embedding-001` | 3072 | クラウド API |
+| `ollama_grace_agent` | Ollama (ローカル) | `gemma4:e4b` | `nomic-embed-text` | **768** | ローカル推論 |
 | `anthropic_grace_agent` | Anthropic | `claude-sonnet-4-6` | `text-embedding-3-large` | 3072 | クラウド API |
 
 > **⚠️ 注意 — Embedding次元の差異**  
@@ -143,7 +143,7 @@ python -c "from grace.benchmark import BenchmarkRunner; BenchmarkRunner().run_qu
 cd gemini_grace_agent
 python -c "from grace.benchmark import BenchmarkRunner; BenchmarkRunner().run_query_set()"
 
-# ollama_grace_agent（ollama serve 起動済み + llama3.2/nomic-embed-text pull済みであること）
+# ollama_grace_agent（ollama serve 起動済み + gemma4:e4b/nomic-embed-text pull済みであること）
 cd ollama_grace_agent
 python -c "from grace.benchmark import BenchmarkRunner; BenchmarkRunner().run_query_set()"
 
@@ -191,9 +191,9 @@ Streamlit ベンチマークページ（`ui/pages/benchmark_page.py`）の「プ
 
 | provider | model | avg_total_sec | avg_confidence | avg_cost_usd | success_rate | avg_rag_sources |
 |---|---|---|---|---|---|---|
-| openai | gpt-4o-mini | - | - | - | - | - |
-| gemini | gemini-3-flash-preview | - | - | - | - | - |
-| ollama | llama3.2 | - | - | 0.0 | - | - |
+| openai | gpt-5.4-mini | - | - | - | - | - |
+| gemini | gemini-2.0-flash | - | - | - | - | - |
+| ollama | gemma4:e4b | - | - | 0.0 | - | - |
 | anthropic | claude-sonnet-4-6 | - | - | - | - | - |
 
 ### 6-3. 考察項目
@@ -202,7 +202,7 @@ Streamlit ベンチマークページ（`ui/pages/benchmark_page.py`）の「プ
 - **品質**: `overall_confidence` および RAGAS スコアが最も高いプロバイダー
 - **コスト効率**: `confidence / cost_usd` 比率（Ollamaは分母が0のため別指標で評価）
 - **安定性**: 試行間の標準偏差・`replan_count` の分布
-- **ローカル推論**: Ollama（llama3.2）の速度・品質トレードオフ（Embedding次元差異の影響含む）
+- **ローカル推論**: Ollama（gemma4:e4b）の速度・品質トレードオフ（Embedding次元差異の影響含む）
 
 ---
 
@@ -214,7 +214,7 @@ Streamlit ベンチマークページ（`ui/pages/benchmark_page.py`）の「プ
 | RAG コレクション (openai/gemini/anthropic) | `cc_news_2per`（3072次元）登録済み |
 | RAG コレクション (ollama) | `cc_news_2per_768`（768次元）登録済み |
 | API キー | `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` が `.env` に設定済み |
-| Ollama | `ollama serve` 起動済み、`llama3.2` および `nomic-embed-text` モデル pull 済み |
+| Ollama | `ollama serve` 起動済み、`gemma4:e4b` および `nomic-embed-text` モデル pull 済み |
 | Python | 3.10 以上、各リポジトリの依存パッケージインストール済み |
 
 ---
@@ -255,3 +255,4 @@ pytest tests/test_agent_4operations.py -v
 |---|---|---|
 | 1.0 | 2026-05-24 | 初版作成 |
 | 1.1 | 2026-05-24 | 各リポジトリ `config.py` 調査に基づきモデル名修正（openai: gpt-4o-mini、gemini: gemini-3-flash-preview、ollama: llama3.2）、Ollama Embedding 次元差異（768）の注意追加、セクション8（単体テスト）追加 |
+| 1.2 | 2026-05-24 | config.py を spec v1.0 の意図通りモデル名に更新したため spec を同期（openai: gpt-5.4-mini、gemini: gemini-2.0-flash、ollama: gemma4:e4b）|
