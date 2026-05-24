@@ -49,6 +49,22 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ================================================================
+# モジュールレベル・トークン集計
+# executor._execute_step() から reset/get を呼び出す
+# ================================================================
+_token_accumulator: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+
+def reset_token_counter() -> None:
+    """ステップ実行前にリセット（executor._execute_step から呼び出す）"""
+    _token_accumulator["input_tokens"]  = 0
+    _token_accumulator["output_tokens"] = 0
+
+def get_token_counter() -> Dict[str, int]:
+    """現在の累計トークン数を返す（executor._execute_step から呼び出す）"""
+    return dict(_token_accumulator)
+
+
 
 # ================================================================
 # LLM モデル設定
@@ -216,6 +232,9 @@ class OpenAIClient(LLMClient):
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.content
 
     def generate_structured(
@@ -241,6 +260,10 @@ class OpenAIClient(LLMClient):
             response_format=response_schema,
             **kwargs,
         )
+
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.parsed
 
     def count_tokens(self, text: str, model: Optional[str] = None) -> int:
@@ -312,6 +335,9 @@ class OpenAIClient(LLMClient):
             create_kwargs["temperature"] = kwargs["temperature"]
 
         response = self.client.chat.completions.create(**create_kwargs)
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         msg = response.choices[0].message
 
         # [MIGRATION] ツール呼び出し抽出
@@ -395,6 +421,9 @@ class GeminiClient(LLMClient):
             contents=prompt,
             config=genai_types.GenerateContentConfig(**config) if config else None,
         )
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            _token_accumulator["input_tokens"]  += response.usage_metadata.prompt_token_count      or 0
+            _token_accumulator["output_tokens"] += response.usage_metadata.candidates_token_count  or 0
         return response.text
 
     def generate_structured(
@@ -422,6 +451,9 @@ class GeminiClient(LLMClient):
             contents=schema_prompt,
             config=genai_types.GenerateContentConfig(**config),
         )
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            _token_accumulator["input_tokens"]  += response.usage_metadata.prompt_token_count      or 0
+            _token_accumulator["output_tokens"] += response.usage_metadata.candidates_token_count  or 0
         try:
             return response_schema.model_validate_json(response.text)
         except Exception as e:
@@ -510,6 +542,9 @@ class AnthropicClient(LLMClient):
             create_kwargs["temperature"] = temperature
 
         response = self.client.messages.create(**create_kwargs)
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.input_tokens  or 0
+            _token_accumulator["output_tokens"] += response.usage.output_tokens or 0
         return response.content[0].text
 
     # ----------------------------------------------------------
@@ -568,8 +603,10 @@ class AnthropicClient(LLMClient):
             create_kwargs["temperature"] = temperature  # [FIX] temperature を API に渡す
 
         response = self.client.messages.create(**create_kwargs)
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.input_tokens  or 0
+            _token_accumulator["output_tokens"] += response.usage.output_tokens or 0
 
-        # stop_reason が "tool_use" のはず（tool_choice 強制のため）
         if response.stop_reason != "tool_use":
             raise ValueError(
                 f"Unexpected stop_reason: {response.stop_reason}. "
@@ -681,6 +718,9 @@ class AnthropicClient(LLMClient):
             create_kwargs["system"] = system
 
         response = self.client.messages.create(**create_kwargs)
+        if response.usage:
+            _token_accumulator["input_tokens"]  += response.usage.input_tokens  or 0
+            _token_accumulator["output_tokens"] += response.usage.output_tokens or 0
 
         # ツール呼び出しを抽出
         tool_calls = [
@@ -817,4 +857,3 @@ def get_embedding_model_pricing(model_name: str) -> float:
 
 def get_embedding_model_dimensions(model_name: str) -> int:
     return EMBEDDING_DIMS.get(model_name, 0)
-
