@@ -59,6 +59,19 @@ try:
     _LLM_CLIENT_AVAILABLE = True
 except ImportError:
     _LLM_CLIENT_AVAILABLE = False
+# ベンチマーク用トークン集計（helper_llm のカウンターを使用）
+try:
+    from helper.helper_llm import (
+        reset_token_counter as _reset_token_counter,
+        get_token_counter   as _get_token_counter,
+        LLM_PRICING         as _LLM_PRICING,
+    )
+    _TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    _TOKEN_TRACKING_AVAILABLE = False
+    def _reset_token_counter() -> None: pass
+    def _get_token_counter()   -> dict: return {}
+    _LLM_PRICING: dict = {}
 
 logger = logging.getLogger(__name__)
 
@@ -525,6 +538,10 @@ class Executor:
                 total_cost_usd=None,
             )
 
+    def execute(self, plan: ExecutionPlan) -> ExecutionResult:
+        """execute_plan() の統一エントリーポイント（benchmark.py 互換）"""
+        return self.execute_plan(plan)
+
     def _check_dependencies(self, step: PlanStep, state: ExecutionState) -> bool:
         """依存ステップの完了確認"""
         for dep_id in step.depends_on:
@@ -563,6 +580,8 @@ class Executor:
             kwargs = self._prepare_tool_kwargs(step, state)
 
             # 実行
+            if _TOKEN_TRACKING_AVAILABLE:  # ベンチマーク: ステップ前にカウンターリセット
+                _reset_token_counter()
             tool_result: ToolResult = tool.execute(**kwargs)
 
             # --- UIへの中間結果通知 (思考プロセス表示用) ---
@@ -593,6 +612,10 @@ class Executor:
             # ソースを抽出
             sources = self._extract_sources(tool_result)
 
+            # ベンチマーク: ステップ内 LLM 呼び出し全体のトークン数を収集
+            _tu = _get_token_counter() if _TOKEN_TRACKING_AVAILABLE else {}
+            _step_token_usage = _tu if (_tu.get("input_tokens") or _tu.get("output_tokens")) else None
+
             return StepResult(
                 step_id=step.step_id,
                 status="success" if tool_result.success else "failed",
@@ -601,7 +624,7 @@ class Executor:
                 sources=sources,
                 error=tool_result.error if not tool_result.success else None,
                 execution_time_ms=execution_time,
-                token_usage=None,
+                token_usage=_step_token_usage,
             )
 
         except Exception as e:
@@ -1389,6 +1412,22 @@ class Executor:
                     final_answer = result.output
                     break
 
+        # ベンチマーク: ステップ横断トークン集計 + API コスト計算
+        _total_in  = sum((sr.token_usage or {}).get("input_tokens",  0) for sr in state.step_results.values())
+        _total_out = sum((sr.token_usage or {}).get("output_tokens", 0) for sr in state.step_results.values())
+        _token_summary = (
+            {"input_tokens": _total_in, "output_tokens": _total_out}
+            if (_total_in or _total_out) else None
+        )
+        _total_cost: Optional[float] = None
+        if _token_summary and _TOKEN_TRACKING_AVAILABLE:
+            _pricing = _LLM_PRICING.get(self.config.llm.model, {"input": 0.0, "output": 0.0})
+            _total_cost = round(
+                _total_in  * _pricing["input"]  / 1000 +
+                _total_out * _pricing["output"] / 1000,
+                6,
+            )
+
         return ExecutionResult(
             plan_id=state.plan.plan_id or create_plan_id(),
             original_query=state.plan.original_query,
@@ -1398,8 +1437,8 @@ class Executor:
             overall_status=overall_status,
             replan_count=state.replan_count,
             total_execution_time_ms=state.get_execution_time_ms(),
-            total_token_usage=None,
-            total_cost_usd=None,
+            total_token_usage=_token_summary,
+            total_cost_usd=_total_cost,
         )
 
     def cancel(self, state: ExecutionState):
