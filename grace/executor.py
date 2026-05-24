@@ -525,6 +525,10 @@ class Executor:
                 total_cost_usd=None,
             )
 
+    def execute(self, plan: ExecutionPlan) -> ExecutionResult:
+        """execute_plan() の統一エントリーポイント（benchmark.py 互換）"""
+        return self.execute_plan(plan)
+
     def _check_dependencies(self, step: PlanStep, state: ExecutionState) -> bool:
         """依存ステップの完了確認"""
         for dep_id in step.depends_on:
