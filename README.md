@@ -1,14 +1,17 @@
 # 自律型Agent + RAG (OpenAI API版) プロジェクト
-## (1) 自律型Agent　（OpenAI API利用、スクラッチで作成）
-### (1-1) 計画策定（Plan）→ 実行（Execute）→ 信頼度評価（Confidence）
-### → 介入判定（Intervention）→ リプラン（Replan）
+#### (1) 自律型Agent　（OpenAI API利用、スクラッチで作成）
+- (1-1) 計画策定（Plan）
+- → 実行（Execute）
+- → 信頼度評価（Confidence）
+- → 介入判定（Intervention）
+- → リプラン（Replan）
 
 ![lp_image.png](assets/lp_img.png)
 
 ## (2) Chunking（意味ある文章に分割する）
-### (2-1) 評価用データ：HuggingFaceからダウンロード：
-### (2-2) RAG: Chunkデータの作成
-### (2-3) RAG: Qdrant(ベクターDB)への登録、検索
+- (2-1) 評価用データ：HuggingFaceからダウンロード
+- (2-2) RAG: Chunkデータの作成
+- (2-3) RAG: Qdrant(ベクターDB)への登録、検索
 
 ![chunk_image.png](assets/img_csv_text_to_chunks_text_csv.png)
 
@@ -16,12 +19,24 @@
 >
 > | # | ドキュメント | 説明 |
 > | - | ----------- | ---- |
-> | 1 | [環境構築手順書 (readme_make_env.md)](./readme_make_env.md) | Mac 向け環境構築（Python / Docker / Celery / API キー設定） |
-> | 2 | [RAG データ取得ガイド (down_load_non_qa_rag_data_from_huggingface.md)](./down_load_non_qa_rag_data_from_huggingface.md) | RAG データを HuggingFace からダウンロード・前処理する手順 |
-> | 3 | [RAG ツール使用ガイド (readme_usage_tools.md)](./readme_usage_tools.md) | チャンク作成 → Q/A 生成・Qdrant 登録 → Agent 検索の操作手順 |
-> | 4 | [RAG Q/A 生成・検索システム (readme_rag.md)](./readme_rag.md) | RAG パイプライン全体の設計・クラス・関数 IPO 詳細（セマンティックチャンキング / Q&A 生成 / Qdrant 検索） |
-> | 5 | [ReAct+Reflection エージェント (readme_react_reflection.md)](./readme_react_reflection.md) | ReAct（Reasoning+Acting）ループ + Reflection 自己評価による自律型 RAG エージェントの設計と実装 |
-> | 6 | [自律型 Agent — GRACE (readme_autonomous_agent.md)](./readme_autonomous_agent.md) | GRACE（Plan→Execute→Confidence→Intervention→Replan）アーキテクチャの設計・IPO 詳細 |
+> | 1 | [セットアップ・インストール手順書 (docs/setup_and_install.md)](./docs/setup_and_install.md) | Python・Docker・uv・API キーの包括的セットアップ手順（はじめにこちら） |
+> | 2 | [環境構築手順書 (readme_make_env.md)](./readme_make_env.md) | Mac 向け詳細環境構築（Python / Docker / Celery / API キー設定） |
+> | 3 | [uv パッケージマネージャー (docs/uv_install.md)](./docs/uv_install.md) | pip → uv 移行・仮想環境管理手順 |
+> | 4 | [RAG データ取得ガイド (down_load_non_qa_rag_data_from_huggingface.md)](./down_load_non_qa_rag_data_from_huggingface.md) | RAG データを HuggingFace からダウンロード・前処理する手順 |
+> | 5 | [RAG ツール使用ガイド (readme_usage_tools.md)](./readme_usage_tools.md) | チャンク作成 → Q/A 生成・Qdrant 登録 → Agent 検索の操作手順 |
+> | 6 | [RAG Q/A 生成・検索システム (readme_rag.md)](./readme_rag.md) | RAG パイプライン全体の設計・クラス・関数 IPO 詳細（セマンティックチャンキング / Q&A 生成 / Qdrant 検索） |
+> | 7 | [Streamlit アプリ設計書 (docs/agent_rag.md)](./docs/agent_rag.md) | agent_rag.py のアーキテクチャ・ページ構成・OpenAI 設定・モデル一覧 |
+> | 8 | [ReAct+Reflection エージェント (readme_react_reflection.md)](./readme_react_reflection.md) | ReAct（Reasoning+Acting）ループ + Reflection 自己評価による自律型 RAG エージェントの設計と実装 |
+> | 9 | [自律型 Agent — GRACE (readme_autonomous_agent.md)](./readme_autonomous_agent.md) | GRACE（Plan→Execute→Confidence→Intervention→Replan）アーキテクチャの設計・IPO 詳細 |
+>
+> **技術参考資料**
+>
+> | # | ドキュメント | 説明 |
+> | - | ----------- | ---- |
+> | R1 | [LLM API 3プロバイダー対比表 v2 (docs/llm_api_comparison_v2.md)](./docs/llm_api_comparison_v2.md) | OpenAI / Anthropic / Gemini の API・クライアント・Embedding 完全比較（最新版） |
+> | R2 | [Gemini → Anthropic 移植報告書 (docs/API_migration_gemini2anthropic.md)](./docs/API_migration_gemini2anthropic.md) | Gemini API から Anthropic API への移植完了報告（歴史的参考資料） |
+> | R3 | [LLM API 比較表 v1 (docs/llm_api_comparison.md)](./docs/llm_api_comparison.md) | LLM API 比較表（v1・旧版参考） |
+
 ---
 
 ## （自律型Agent）grace_chat_page.py
