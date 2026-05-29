@@ -901,6 +901,21 @@ async def main():
     setup_logging(verbose=args.verbose)
 
     # ================================================================
+    # モデル名検証: このプロジェクトは OpenAI API を使用します
+    # Claude モデル名（claude-*）は OpenAI API では使用できません
+    # ================================================================
+    if args.model.lower().startswith("claude-"):
+        logger.error(
+            f"❌ モデル名エラー: '{args.model}' は Anthropic/Claude のモデルです。\n"
+            f"   このプロジェクト (openai_grace_agent) は OpenAI API を使用しています。\n"
+            f"   OpenAI モデル名を指定してください。例:\n"
+            f"     --model gpt-5.4-mini   (推奨・デフォルト)\n"
+            f"     --model gpt-4o-mini\n"
+            f"     --model gpt-4o"
+        )
+        return
+
+    # ================================================================
     # 入力ファイル読み込み（✅ args.input → args.input_file）
     # ================================================================
     input_path = Path(args.input_file)  # ✅ 変更
