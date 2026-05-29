@@ -16,7 +16,8 @@ Intervention / Replan）の性能指標を計測・記録・CSV出力するモ�
         category="事実検索",
     )
 
-    # 全クエリセットを3回ずつ実行
+    # Qdrantコレクションを明示指定して全クエリセットを３回ずつ実行
+    runner = BenchmarkRunner(qdrant_collection="cc_news_2per_openai")
     sessions = runner.run_query_set(runs_per_query=3)
 """
 
@@ -84,7 +85,7 @@ BENCHMARK_QUERIES: List[Dict[str, str]] = [
     {"id": "Q07", "level": "Easy",   "category": "手順説明",
      "text": "AIの倫理問題について、ニュースで報道された主な事例を時系列で教えてください"},
     {"id": "Q08", "level": "Medium", "category": "手順説明",
-     "text": "医療AI分野のここ〲2年のニュースをカテゴリ別に整理してください"},
+     "text": "医療AI分野のここ〒２年のニュースをカテゴリ別に整理してください"},
     # Ambiguous / 曖昧（ESCALATE を誘発するテスト）
     {"id": "Q09", "level": "Easy",   "category": "曖昧",
      "text": "最近の重要なニュースを教えて"},
@@ -92,9 +93,9 @@ BENCHMARK_QUERIES: List[Dict[str, str]] = [
      "text": "あの件について詳しく教えて"},
     # Hard / エラー回復・複合
     {"id": "Q11", "level": "Hard",   "category": "推論・比較",
-     "text": "cc_newsに存在しないトピックを検索して、リプランが発生する過程を示してください"},
+     "text": "cc_newsに存在しないトピックを検索して、リプランが発生する遠程を示してください"},
     {"id": "Q12", "level": "Hard",   "category": "推論・比較",
-     "text": "5つ以上の異なるニュースソースの情報を統合して、2024年の総括レポートを作成してください"},
+     "text": "５つ以上の異なるニュースソースの情報を統合して、2024年の総括レポートを作成してください"},
 ]
 
 
@@ -111,7 +112,7 @@ class BenchmarkSession:
     execute_time_sec / total_time_sec は property で計算する。
     """
 
-    # ── Identity ──────────────────────────────────────────────────────────
+    # ── Identity ──────────────────────────────────────────────────
     session_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     query_id: str = ""
     query_text: str = ""
@@ -122,35 +123,35 @@ class BenchmarkSession:
     run_number: int = 1
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
-    # ── Phase タイミング（monotonic秒） ────────────────────────────────────
+    # ── Phase タイミング（monotonic秒） ─────────────────────────────────────────
     plan_start: float = 0.0
     plan_end: float = 0.0
     execute_start: float = 0.0
     execute_end: float = 0.0
 
-    # ── Plan フェーズ指標 ───────────────────────────────────────────
+    # ── Plan フェーズ指標 ──────────────────────────────────────────
     plan_complexity: float = 0.0
     plan_steps: int = 0
     requires_confirmation: bool = False
     plan_id: str = ""
 
-    # ── Execute フェーズ指標 ─────────────────────────────────────
-    tool_calls: int = 0         # 実行された全ステップ数
-    rag_step_count: int = 0     # rag_search アクションのステップ数
-    sources_total: int = 0      # 全ステップのソース数合計
+    # ── Execute フェーズ指標 ──────────────────────────────────────
+    tool_calls: int = 0
+    rag_step_count: int = 0
+    sources_total: int = 0
 
-    # ── Confidence 指標 ──────────────────────────────────────────
+    # ── Confidence 指標 ───────────────────────────────────────────
     step_confidences: List[float] = field(default_factory=list)
     overall_confidence: float = 0.0
 
-    # ── Intervention ─────────────────────────────────────────────
-    intervention_level: str = ""   # SILENT / NOTIFY / CONFIRM / ESCALATE
+    # ── Intervention ───────────────────────────────────────────────
+    intervention_level: str = ""
 
-    # ── Replan ───────────────────────────────────────────────────
+    # ── Replan ─────────────────────────────────────────────────────
     replan_count: int = 0
     overall_status: str = ""
 
-    # ── Cost / Tokens ────────────────────────────────────────────
+    # ── Cost / Tokens ───────────────────────────────────────────────
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
@@ -159,25 +160,20 @@ class BenchmarkSession:
     accuracy_score: Optional[float] = None
     completeness_score: Optional[float] = None
 
-    # ── Properties ───────────────────────────────────────────────
-
     @property
     def plan_time_sec(self) -> float:
-        """計画生成フェーズの所要時間（秒）"""
         if self.plan_end > 0 and self.plan_start > 0:
             return round(self.plan_end - self.plan_start, 3)
         return 0.0
 
     @property
     def execute_time_sec(self) -> float:
-        """実行フェーズの所要時間（秒）"""
         if self.execute_end > 0 and self.execute_start > 0:
             return round(self.execute_end - self.execute_start, 3)
         return 0.0
 
     @property
     def total_time_sec(self) -> float:
-        """Plan + Execute の合計所要時間（秒）"""
         start = self.plan_start if self.plan_start > 0 else self.execute_start
         end   = self.execute_end if self.execute_end > 0 else self.plan_end
         if start > 0 and end > 0:
@@ -186,16 +182,13 @@ class BenchmarkSession:
 
     @property
     def min_step_confidence(self) -> float:
-        """ステップ信頼度の最小値"""
         return round(min(self.step_confidences), 3) if self.step_confidences else 0.0
 
     @property
     def max_step_confidence(self) -> float:
-        """ステップ信頼度の最大値"""
         return round(max(self.step_confidences), 3) if self.step_confidences else 0.0
 
     def to_csv_row(self) -> Dict[str, Any]:
-        """CSV 1行分の辞書を返す"""
         return {
             "timestamp":           self.timestamp,
             "session_id":          self.session_id,
@@ -241,7 +234,6 @@ class BenchmarkLogger:
     の両形式で出力する。
     """
 
-    # Confidence → InterventionLevel の閾値（grace/config.py の ConfidenceThresholds と一致）
     _THRESH_SILENT:  float = 0.9
     _THRESH_NOTIFY:  float = 0.7
     _THRESH_CONFIRM: float = 0.4
@@ -252,12 +244,9 @@ class BenchmarkLogger:
         self._ensure_csv_headers()
 
     def _ensure_csv_headers(self) -> None:
-        """CSV ファイルが存在しない場合のみヘッダー行を書き込む"""
         if not self.csv_path.exists():
             with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
                 csv.DictWriter(fh, fieldnames=CSV_HEADERS).writeheader()
-
-    # ── record helpers ──────────────────────────────────────────────
 
     def record_plan_result(self, session: BenchmarkSession, plan: Any) -> None:
         session.plan_complexity       = getattr(plan, "complexity", 0.0)
@@ -269,11 +258,9 @@ class BenchmarkLogger:
         session.overall_confidence = getattr(result, "overall_confidence", 0.0)
         session.replan_count       = getattr(result, "replan_count", 0)
         session.overall_status     = getattr(result, "overall_status", "")
-
         exec_ms = getattr(result, "total_execution_time_ms", None)
         if exec_ms and session.execute_time_sec == 0.0:
             session.execute_end = session.execute_start + exec_ms / 1000.0
-
         tu = getattr(result, "total_token_usage", None) or {}
         if isinstance(tu, dict):
             session.input_tokens  = (
@@ -282,11 +269,9 @@ class BenchmarkLogger:
             session.output_tokens = (
                 tu.get("output_tokens") or tu.get("completion_tokens") or 0
             )
-
         cost = getattr(result, "total_cost_usd", None)
         if cost is not None:
             session.cost_usd = float(cost)
-
         for step_result in getattr(result, "step_results", []):
             session.tool_calls += 1
             conf = getattr(step_result, "confidence", 0.0)
@@ -295,7 +280,6 @@ class BenchmarkLogger:
             if sources:
                 session.rag_step_count += 1
                 session.sources_total  += len(sources)
-
         session.intervention_level = self._score_to_intervention(
             session.overall_confidence
         )
@@ -350,6 +334,7 @@ class BenchmarkRunner:
         provider: Optional[str]   = None,
         config: Any               = None,
         csv_path: Optional[Path]  = None,
+        qdrant_collection: Optional[str] = None,
     ) -> None:
         from .config import get_config as _get_config
 
@@ -357,6 +342,8 @@ class BenchmarkRunner:
         self.model_name = model_name or self.config.llm.model
         self.provider   = provider   or self.config.llm.provider
         self.bm_logger  = BenchmarkLogger(csv_path=csv_path)
+        if qdrant_collection:
+            self.config.qdrant.collection_name = qdrant_collection
 
     def run(
         self,
@@ -423,7 +410,6 @@ class BenchmarkRunner:
             result = executor.execute_plan_generator(plan)
         else:
             result = executor.execute_plan(plan)
-
         if isinstance(result, types.GeneratorType):
             last, ret = None, None
             try:
@@ -432,7 +418,6 @@ class BenchmarkRunner:
             except StopIteration as e:
                 ret = e.value
             return ret if ret is not None else last
-
         return result
 
     def run_query_set(
@@ -444,7 +429,6 @@ class BenchmarkRunner:
         sessions: List[BenchmarkSession] = []
         total = len(queries) * runs_per_query
         done  = 0
-
         for query in queries:
             for run in range(1, runs_per_query + 1):
                 done += 1
@@ -460,7 +444,6 @@ class BenchmarkRunner:
                     category   = query.get("category", ""),
                 )
                 sessions.append(session)
-
         logger.info(
             "[BENCHMARK] All done: %d sessions. CSV => %s",
             done, self.bm_logger.csv_path,
