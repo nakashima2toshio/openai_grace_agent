@@ -244,10 +244,13 @@ def run_registration(
         logger.error(f"ファイル読み込みエラー: {e}")
         return False
 
-    # ベクトル化対象テキストの準備 (question + answer)
+    # ベクトル化対象テキストの準備: question のみ
+    # answer を含めると Q+A 合体ベクトルになり、質問文だけで検索した際の
+    # コサイン類似度が 0.75 前後に下がる。question のみで登録することで
+    # 同一質問クエリに対して 0.95+ のスコアが期待できる。
     if 'question' in df.columns and 'answer' in df.columns:
-        texts = (df['question'].astype(str) + "\n" + df['answer'].astype(str)).tolist()
-        logger.info("📝 ベクトル化対象: 'question' と 'answer' を結合")
+        texts = df['question'].astype(str).tolist()
+        logger.info("📝 ベクトル化対象: 'question' のみ（answer はペイロードに保持）")
     else:
         logger.error("Q/Aカラムが見つかりません。")
         return False

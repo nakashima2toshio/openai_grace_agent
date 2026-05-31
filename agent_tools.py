@@ -35,7 +35,7 @@ client: QdrantClient = get_qdrant_client()
 
 
 # ============ コサイン類似度閾値 ============
-COSINE_SIMILARITY_THRESHOLD: float = 0.7  # Cohere Rerank廃止 → コサイン類似度で直接フィルタ
+COSINE_SIMILARITY_THRESHOLD: float = 0.5  # 0.7→0.5に緩和: Q/A登録コレクションはスコアが0.6台になりやすいため
 
 
 # ============ コレクション一覧キャッシュ（Phase 3 STEP 6 改善）============
