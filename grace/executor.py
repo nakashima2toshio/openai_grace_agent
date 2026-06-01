@@ -325,19 +325,16 @@ class Executor:
                     confidence_score = self.step_confidence_scores[step.step_id]
                     action_decision = self.confidence_calculator.decide_action(confidence_score)
 
-                    # CONFIRM または ESCALATE の場合は一時停止
-                    if action_decision.level in [InterventionLevel.CONFIRM, InterventionLevel.ESCALATE]:
+                    # ESCALATE のみ一時停止（CONFIRM は通知して自動続行）
+                    if action_decision.level == InterventionLevel.ESCALATE:
                         logger.info(f"Pausing for intervention: {action_decision.level} (Step {step.step_id})")
 
                         state.is_paused = True
 
-                        # 介入リクエストを作成
-                        req_type = "confirm" if action_decision.level == InterventionLevel.CONFIRM else "escalate"
-                        message = f"信頼度が低いため確認が必要です ({confidence_score.score:.2f})"
+                        message = f"信頼度が非常に低いためエスカレーションが必要です ({confidence_score.score:.2f})"
                         if action_decision.reason:
                             message += f"\n理由: {action_decision.reason}"
 
-                        # InterventionRequestオブジェクトを作成
                         state.intervention_request = InterventionRequest(
                             level=action_decision.level,
                             step_id=step.step_id,
@@ -353,8 +350,17 @@ class Executor:
                         # ジェネレータを終了（再開時は新しいジェネレータを作成）
                         return self._create_execution_result(state)
 
-                    # 通知のみ（SILENT/NOTIFY）
-                    self._handle_intervention_if_needed(action_decision, step, state)
+                    elif action_decision.level == InterventionLevel.CONFIRM:
+                        # CONFIRM は警告ログのみ・自動続行
+                        message = f"信頼度が低いため確認推奨 ({confidence_score.score:.2f}) — 自動続行"
+                        if action_decision.reason:
+                            message += f" / 理由: {action_decision.reason}"
+                        logger.info(f"[CONFIRM] {message}")
+                        self._handle_intervention_notify(message)
+
+                    else:
+                        # SILENT / NOTIFY
+                        self._handle_intervention_if_needed(action_decision, step, state)
 
                 # Yield: ステップ完了状態を通知
                 yield state
