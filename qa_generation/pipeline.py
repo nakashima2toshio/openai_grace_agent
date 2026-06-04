@@ -21,7 +21,7 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   # チャンク済みCSVからQ/A生成
   pipeline = QAPipeline(
       input_file="output_chunked/data_chunks.csv",
-      model="gpt-5.4-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5.4-mini"
+      model="gpt-5-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5-mini"
       output_dir="qa_output/pipeline"
   )
   result = pipeline.run(
@@ -52,7 +52,7 @@ class QAPipeline:
     def __init__(self,
                  dataset_name: Optional[str] = None,
                  input_file: Optional[str] = None,
-                 model: str = "gpt-5.4-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5.4-mini"
+                 model: str = "gpt-5-mini",  # [MIGRATION] "claude-sonnet-4-6" → "gpt-5-mini"
                  output_dir: str = "qa_output/pipeline",
                  max_docs: Optional[int] = None,
                  client: Optional[LLMClient] = None):

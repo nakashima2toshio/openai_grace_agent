@@ -18,7 +18,7 @@ python qa_qdrant/make_qa_register_qdrant.py \
 --input-file output_chunked/cc_news_1per_chunks.csv \
 --collection cc_news_1per \
 --use-celery \
---model gpt-5.4-mini \
+--model gpt-5-mini \
 --concurrency 8 \
 --recreate
 
@@ -27,7 +27,7 @@ python qa_qdrant/make_qa_register_qdrant.py \
 --input-file output_chunked/wikipedia_ja_1per_chunks.csv \
 --collection wikipedia_ja_1per \
 --use-celery \
---model gpt-5.4-mini \
+--model gpt-5-mini \
 --concurrency 8 \
 --recreate
 
@@ -79,7 +79,7 @@ Qdrant登録:
 --batch-size        Embeddingバッチサイズ（デフォルト: 100）
 
 Q/A生成:
---model             LLMモデル（デフォルト: gpt-5.4-mini）
+--model             LLMモデル（デフォルト: gpt-5-mini）
 --use-celery        Celery並列処理を使用
 -c, --concurrency   並列タスク数（デフォルト: 8）
 --batch-chunks      1回のAPIで処理するチャンク数（デフォルト: 3）
@@ -408,8 +408,8 @@ def main():
     group_gen.add_argument(
         "--model",
         type=str,
-        default="gpt-5.4-mini",
-        help="使用するLLMモデル（デフォルト: gpt-5.4-mini）"
+        default="gpt-5-mini",
+        help="使用するLLMモデル（デフォルト: gpt-5-mini）"
     )
     group_gen.add_argument(
         "--max-docs",
