@@ -28,18 +28,18 @@ Usage:　chunking.csv_text_to_chunks_text_csv　はceleryを利用していな�
 # ./start_celery.sh restart -w 4 --flower
 
 # CSVファイル → チャンクCSV
-# [MIGRATION] Gemini → OpenAI。--model は gpt-5.4-mini を使用してください。
+# [MIGRATION] Gemini → OpenAI。--model は gpt-5-mini を使用してください。
 uv run python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/cc_news_1per.csv \
   --output chunks_output \
-  --model gpt-5.4-mini \
+  --model gpt-5-mini \
   --workers 8 \
   --block-size 500
 
 python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/wikipedia_ja_1per.csv \
   --output chunks_output \
-  --model gpt-5.4-mini \
+  --model gpt-5-mini \
   --workers 8 \
 
 # 出力例:
@@ -52,7 +52,7 @@ python -m chunking.csv_text_to_chunks_text_csv \
 uv run python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/cc_news_1per.csv \
   --output output_chunked \
-  --model gpt-5.4-mini \
+  --model gpt-5-mini \
   --workers 8
 
 # ----------------------------------------------
@@ -61,7 +61,7 @@ uv run python -m chunking.csv_text_to_chunks_text_csv \
 uv run python qa_qdrant/make_qa_register_qdrant.py \
   --input-file output_chunked/cc_news_1per_chunks.csv \
   --collection cc_news_1per \
-  --model gpt-5.4-mini \
+  --model gpt-5-mini \
   --concurrency 8 \
   --recreate
 
@@ -499,7 +499,7 @@ def _split_sentences_simple(text: str) -> List[str]:
 
 async def chunks_all_async(
         text: str,
-        model: str = "gpt-5.4-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
+        model: str = "gpt-5-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
         max_workers: int = 8,
         block_size: int = 1000,  # ✅ 2000→1000に変更（MAX_TOKENS対策）
         checkpoint_manager: Optional[CheckpointManager] = None,
@@ -847,7 +847,7 @@ async def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-5.4-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
+        default="gpt-5-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
         help="使用するLLMモデル"
     )
     parser.add_argument(
@@ -909,7 +909,7 @@ async def main():
             f"❌ モデル名エラー: '{args.model}' は Anthropic/Claude のモデルです。\n"
             f"   このプロジェクト (openai_grace_agent) は OpenAI API を使用しています。\n"
             f"   OpenAI モデル名を指定してください。例:\n"
-            f"     --model gpt-5.4-mini   (推奨・デフォルト)\n"
+            f"     --model gpt-5-mini   (推奨・デフォルト)\n"
             f"     --model gpt-4o-mini\n"
             f"     --model gpt-4o"
         )
