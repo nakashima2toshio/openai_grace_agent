@@ -34,12 +34,12 @@ class SmartQAGenerator:
     [MIGRATION] Gemini API → Anthropic API に移植済み
     """
 
-    def __init__(self, model: str = "gpt-5.4-mini", api_key: Optional[str] = None):
+    def __init__(self, model: str = "gpt-5-mini", api_key: Optional[str] = None):
         """
         初期化
 
         Args:
-            model: 使用する OpenAI モデル（デフォルト: gpt-5.4-mini）
+            model: 使用する OpenAI モデル（デフォルト: gpt-5-mini）
             api_key: OpenAI API Key（環境変数 OPENAI_API_KEY から自動取得）
         """
         # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
@@ -68,7 +68,7 @@ class SmartQAGenerator:
             prompt=prompt,
             model=self.model,
             temperature=temperature,
-            max_completion_tokens=4096,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+            max_completion_tokens=4096,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
         )
 
 

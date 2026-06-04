@@ -105,8 +105,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-5.4-mini",
-        help="使用するLLMモデル（デフォルト: gpt-5.4-mini）"
+        default="gpt-5-mini",
+        help="使用するLLMモデル（デフォルト: gpt-5-mini）"
     )
     parser.add_argument(
         "--output",
