@@ -49,11 +49,12 @@ class SmartQAGenerator:
         logger.info(f"OpenAI API を使用 (model={self.model})")
 
 
-    def _generate_content(self, prompt: str, temperature: float = 0.1) -> str:
+    def _generate_content(self, prompt: str, temperature: float = None) -> str:
         """
         コンテンツ生成
         [MIGRATION] client.models.generate_content() → llm.generate_content()
         戻り値は str が直接返るため response.text の取り出し不要
+        Note: gpt-5系はデフォルト(1)以外のtemperatureを受け付けないため省略
 
         Args:
             prompt: プロンプト
@@ -64,11 +65,13 @@ class SmartQAGenerator:
         # [MIGRATION] Gemini: self.client.models.generate_content(model, contents, config)
         #           → OpenAI: self.llm.generate_content(prompt, model, temperature, max_completion_tokens)
         # AFC 無効化オプションは OpenAI では不要
+        kwargs = {"max_completion_tokens": 4096}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         return self.llm.generate_content(
             prompt=prompt,
             model=self.model,
-            temperature=temperature,
-            max_completion_tokens=4096,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+            **kwargs,
         )
 
 
@@ -141,7 +144,7 @@ class SmartQAGenerator:
 """
 
         try:
-            text = self._generate_content(prompt, temperature=0.1)
+            text = self._generate_content(prompt)
 
             # JSONパース
             text = text.strip()
@@ -279,7 +282,7 @@ class SmartQAGenerator:
 """
 
         try:
-            text = self._generate_content(prompt, temperature=0.3)
+            text = self._generate_content(prompt)
 
             # Markdownコードブロックの除去
             text = text.strip()
