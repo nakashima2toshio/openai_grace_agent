@@ -198,17 +198,31 @@ def collect_results(tasks: List, timeout: int = 600) -> List[Dict]:
     timeout_count = 0
     error_details = []
 
+    total = len(tasks)
+    last_logged_pct = -1
+
     for i, task in enumerate(tasks, 1):
         try:
             result = task.get(timeout=timeout)
 
-            if result:
+            # [FIX] result が [] (qa_count=0の正常完了) の場合も成功扱い。None のみ失敗扱い。
+            if result is not None:
                 all_qa_pairs.extend(result)
                 success_count += 1
-                logger.debug(f"タスク {i}/{len(tasks)}: ✅ 成功（Q/A数={len(result)}）")
+                if len(result) == 0:
+                    logger.debug(f"タスク {i}/{total}: ✅ 正常完了（Q/A生成不要のチャンク）")
+                else:
+                    logger.debug(f"タスク {i}/{total}: ✅ 成功（Q/A数={len(result)}）")
             else:
                 failed_count += 1
-                logger.warning(f"タスク {i}/{len(tasks)}: ⚠️ 結果が空")
+                logger.warning(f"タスク {i}/{total}: ⚠️ 結果がNone（タスク失敗）")
+
+        # [ADD] 5%刻みの進捗ログ（コンソールが止まって見える問題を解消）
+        finally:
+            pct = int(i / total * 100)
+            if pct // 5 > last_logged_pct // 5:
+                logger.info(f"[進捗] {i}/{total} タスク完了 ({pct}%) — Q/A蓄積数: {len(all_qa_pairs)}")
+                last_logged_pct = pct
 
         except Exception as e:
             error_msg = str(e)
