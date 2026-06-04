@@ -130,7 +130,7 @@ class ConfigManager:
         return {
             "models": {
                 # [MIGRATION anthropic→openai] デフォルトモデルを OpenAI に変更
-                "default": "gpt-4o-mini",
+                "default": "gpt-5.4-mini",
                 "available": [
                     "gpt-4o",
                     "gpt-4o-mini",

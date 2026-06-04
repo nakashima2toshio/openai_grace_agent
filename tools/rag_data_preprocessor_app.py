@@ -40,7 +40,7 @@ class AppConfig:
         "o4-mini"
     ]
 
-    DEFAULT_MODEL = "gpt-4o-mini"
+    DEFAULT_MODEL = "gpt-5.4-mini"
 
     # モデル料金（1000トークンあたりのドル）
     MODEL_PRICING = {

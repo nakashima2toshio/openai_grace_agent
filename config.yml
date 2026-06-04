@@ -14,8 +14,8 @@
 # LLM モデル設定
 # =====================================================
 models:
-  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-4o-mini"
-  default: "gpt-4o-mini"
+  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-5.4-mini"
+  default: "gpt-5.4-mini"
   available:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
     - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
@@ -84,10 +84,10 @@ model_pricing:
 # =====================================================
 openai:
   # LLM設定
-  default_model: "gpt-4o-mini"
+  default_model: "gpt-5.4-mini"
   available_models:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
-    - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
+    - "gpt-4o-mini"               # 旧デフォルト（コスト効率）
     - "gpt-4.1"                   # GPT-4.1（最新）
     - "gpt-4.1-mini"              # GPT-4.1 軽量版
     - "o1-mini"                   # 推論特化

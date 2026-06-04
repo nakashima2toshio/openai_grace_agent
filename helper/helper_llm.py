@@ -195,7 +195,7 @@ class LLMClient(ABC):
 # ================================================================
 
 class OpenAIClient(LLMClient):
-    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-5.4-mini"):
         if not OpenAI:
             raise ImportError("openai package is not installed.")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -758,7 +758,7 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:  # [MIGR
         text = llm.generate_content("こんにちは")
 
         # モデル指定
-        llm = create_llm_client("openai", default_model="gpt-4o-mini")
+        llm = create_llm_client("openai", default_model="gpt-5.4-mini")
 
         # anthropic_grace_agent（後方互換）
         llm = create_llm_client("anthropic")
