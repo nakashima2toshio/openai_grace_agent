@@ -62,8 +62,8 @@ class SmartQAGenerator:
             生成されたテキスト
         """
         # [MIGRATION] Gemini: self.client.models.generate_content(model, contents, config)
-        #           → Anthropic: self.llm.generate_content(prompt, model, temperature, max_tokens)
-        # AFC 無効化オプションは Anthropic では不要
+        #           → OpenAI: self.llm.generate_content(prompt, model, temperature, max_completion_tokens)
+        # AFC 無効化オプションは OpenAI では不要
         return self.llm.generate_content(
             prompt=prompt,
             model=self.model,
@@ -154,7 +154,9 @@ class SmartQAGenerator:
             if text.endswith('```'):
                 text = text[:-3]
 
-            result = json.loads(text.strip())
+            # [FIX] json.loads() → raw_decode(): LLMがJSONの後に余分なテキストを返す場合のパースエラーを修正
+            decoder = json.JSONDecoder()
+            result, _ = decoder.raw_decode(text.strip())
 
             # バリデーション
             result['qa_count'] = max(0, min(5, int(result['qa_count'])))
@@ -288,7 +290,9 @@ class SmartQAGenerator:
             if text.endswith('```'):
                 text = text[:-3]
 
-            qa_pairs = json.loads(text.strip())
+            # [FIX] json.loads() → raw_decode(): LLMがJSONの後に余分なテキストを返す場合のパースエラーを修正
+            decoder = json.JSONDecoder()
+            qa_pairs, _ = decoder.raw_decode(text.strip())
 
             # 件数チェック
             if len(qa_pairs) != qa_count:

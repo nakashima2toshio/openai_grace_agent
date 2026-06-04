@@ -110,6 +110,9 @@ kill_all_celery() {
 
 # ワーカー停止
 stop_workers() {
+    # [FIX] 停止前にRedisキューをパージ（再起動時に残タスクが再処理される問題を解消）
+    echo "Redisキュー内の残タスクをパージ中..."
+    celery -A celery_config purge -f 2>/dev/null && echo "✅ キューパージ完了" || echo "⚠️ キューパージ失敗（スキップ）"
     kill_all_celery
 }
 
