@@ -217,13 +217,6 @@ def collect_results(tasks: List, timeout: int = 600) -> List[Dict]:
                 failed_count += 1
                 logger.warning(f"タスク {i}/{total}: ⚠️ 結果がNone（タスク失敗）")
 
-        # [ADD] 5%刻みの進捗ログ（コンソールが止まって見える問題を解消）
-        finally:
-            pct = int(i / total * 100)
-            if pct // 5 > last_logged_pct // 5:
-                logger.info(f"[進捗] {i}/{total} タスク完了 ({pct}%) — Q/A蓄積数: {len(all_qa_pairs)}")
-                last_logged_pct = pct
-
         except Exception as e:
             error_msg = str(e)
 
@@ -236,7 +229,12 @@ def collect_results(tasks: List, timeout: int = 600) -> List[Dict]:
                 error_details.append(f"タスク{i}: {error_msg[:100]}")
 
             failed_count += 1
-            continue
+
+        finally:
+            pct = int(i / total * 100)
+            if pct // 5 > last_logged_pct // 5:
+                logger.info(f"[進捗] {i}/{total} タスク完了 ({pct}%) — Q/A蓄積数: {len(all_qa_pairs)}")
+                last_logged_pct = pct
 
     # サマリー
     logger.info("=" * 60)
