@@ -4,10 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## ⚠️ ファイル書き込みポリシー
 
-**ユーザーのファイルシステムへの write は基本禁止。**
-- `Filesystem:write_file` / `Filesystem:edit_file` によるユーザー側ファイルへの書き込みは、ユーザーの明示的な許可がある場合のみ実行すること。
-- 読み取り（`read_text_file`, `read_file`, `list_directory` 等）は許可。
-- 新規ファイル作成・既存ファイル編集が必要な場合は、まずユーザーに確認を取ること。
+### GitHub ブランチ操作：全許可
+- ブランチへのコミット・プッシュ・PR作成・master へのマージを確認なしで実行してよい。
+- 指定ブランチ以外への push や force push は事前に確認すること。
+
+### ローカルファイル操作：作業範囲内許可
+- タスクに関連するファイルの新規作成・編集は確認なしで実行してよい。
+- タスクと無関係なファイルへの書き込みは事前に確認すること。
+- ファイルの削除など不可逆的な操作は事前に確認すること。
 
 ## Project Overview
 
