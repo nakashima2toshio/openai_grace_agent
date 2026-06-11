@@ -1,6 +1,6 @@
 # Pythonモジュール ドキュメント フォーマット仕様書
 
-**Version 1.4** | 最終更新: 2026-02-09
+**Version 1.5** | 最終更新: 2026-06-11
 
 ---
 
@@ -1040,6 +1040,65 @@ flowchart TB
 ```
 ```
 
+### 16.5 カラーテーマ（黒背景・白文字）— **必須**
+
+すべてのMermaidダイアグラムに以下のスタイルを適用すること。
+
+| 要素 | 設定値 |
+|------|--------|
+| ノード背景色 | `fill:#000` |
+| ノードテキスト色 | `color:#fff` |
+| ノード枠線色 | `stroke:#fff` |
+| サブグラフ背景色 | `fill:#1a1a1a` |
+| サブグラフテキスト色 | `color:#fff` |
+| サブグラフ枠線色 | `stroke:#fff` |
+
+#### flowchart / graph 図の実装パターン
+
+```markdown
+```mermaid
+flowchart TB
+    subgraph Layer["レイヤー名"]
+        NodeA["ノードA"]
+        NodeB["ノードB"]
+    end
+    NodeA --> NodeB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class NodeA,NodeB default
+style Layer fill:#1a1a1a,stroke:#fff,color:#fff
+```
+```
+
+**必須ルール:**
+
+1. `classDef default fill:#000,stroke:#fff,color:#fff` を必ずブロック末尾に追加する
+2. `classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff` を追加する
+3. 全ノードに `class <node_ids> default` を付与する
+4. 全サブグラフに `style <subgraph_name> fill:#1a1a1a,stroke:#fff,color:#fff` を付与する
+5. 既存の `style`/`classDef`/`class` 行は重複しないよう整理する
+
+#### sequenceDiagram 図の実装パターン
+
+```markdown
+```mermaid
+%%{ init: { "theme": "base", "themeVariables": {
+  "background": "#000000", "mainBkg": "#000000",
+  "textColor": "#ffffff", "lineColor": "#ffffff",
+  "actorBkg": "#000000", "actorTextColor": "#ffffff",
+  "actorLineColor": "#ffffff", "noteBkg": "#1a1a1a",
+  "noteTextColor": "#ffffff" } } }%%
+sequenceDiagram
+    participant A as "参加者A"
+    A->>B: メッセージ
+```
+```
+
+**必須ルール:**
+
+- `sequenceDiagram` の前に必ず `%%{ init: ... }%%` ヘッダーを挿入する
+- `classDef` / `class` 行は `sequenceDiagram` では使用しない（非対応）
+
 ---
 
 ## 17. Markdown記法ルール
@@ -1100,6 +1159,7 @@ flowchart TB
 - [ ] 設定・定数が文書化されている
 - [ ] 変更履歴が更新されている
 - [ ] 依存関係図がMermaidで作成されている
+- [ ] 全Mermaidダイアグラムに黒背景・白文字スタイルが適用されている（`classDef default fill:#000,stroke:#fff,color:#fff`）
 
 ---
 
@@ -1112,3 +1172,4 @@ flowchart TB
 | 1.2 | 目次セクションを追加、チェックリストに目次確認項目を追加 |
 | 1.3 | ASCII図をMermaid v9フローチャートに変更（PyCharm Pro対応）、Mermaid記法ガイドセクションを追加 |
 | 1.4 | 概要セクションに「各責務対応のモジュール」テーブルを追加（責務→モジュール対応の明示化） |
+| 1.5 | §16.5 カラーテーマ（黒背景・白文字）を必須仕様として追加、チェックリストに確認項目を追加 |

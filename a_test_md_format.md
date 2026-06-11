@@ -1,6 +1,6 @@
 # Python 単体テスト ドキュメント フォーマット仕様書
 
-**Version 1.0** | 最終更新: 2026-02-15
+**Version 1.1** | 最終更新: 2026-06-11
 
 ---
 
@@ -723,15 +723,49 @@ pytest test_{module_name}.py -v -k "keyword"
 | サブグラフ | `subgraph ID["タイトル"]` 形式 |
 | スタイル | `style NodeID fill:#色,color:#文字色,stroke:#枠色` |
 
-テストドキュメント固有のスタイル推奨:
+テストドキュメント固有のスタイル推奨（正常系/異常系の色分けはスコープ境界のみに限定し、ノード全体は黒背景で統一すること）:
 
 | 用途 | 推奨スタイル |
 |------|------------|
-| テストスコープ（対象内） | `fill:#e8f5e9,stroke:#4CAF50` |
-| テストスコープ（対象外） | `fill:#fce4ec,stroke:#E91E63` |
-| 正常系パス | `fill:#4CAF50,color:#fff` |
-| 異常系パス | `fill:#FF9800,color:#fff` |
-| API呼び出し | `fill:#2196F3,color:#fff` |
+| テストスコープ（対象内）境界 | `stroke:#4CAF50` |
+| テストスコープ（対象外）境界 | `stroke:#E91E63` |
+
+### カラーテーマ（黒背景・白文字）— **必須**
+
+すべてのMermaidダイアグラムに以下のスタイルを適用すること。
+
+| 要素 | 設定値 |
+|------|--------|
+| ノード背景色 | `fill:#000` |
+| ノードテキスト色 | `color:#fff` |
+| ノード枠線色 | `stroke:#fff` |
+| サブグラフ背景色 | `fill:#1a1a1a` |
+| サブグラフテキスト色 | `color:#fff` |
+| サブグラフ枠線色 | `stroke:#fff` |
+
+#### flowchart 図の実装パターン
+
+```markdown
+```mermaid
+flowchart TB
+    subgraph SCOPE["テストスコープ"]
+        NodeA["メソッドA"]
+        NodeB["メソッドB"]
+    end
+    NodeA --> NodeB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class NodeA,NodeB default
+style SCOPE fill:#1a1a1a,stroke:#fff,color:#fff
+```
+```
+
+**必須ルール:**
+
+1. `classDef default fill:#000,stroke:#fff,color:#fff` を必ずブロック末尾に追加する
+2. 全ノードに `class <node_ids> default` を付与する
+3. 全サブグラフに `style <subgraph_name> fill:#1a1a1a,stroke:#fff,color:#fff` を付与する
+4. テストスコープ境界の色分けは `stroke` 色のみ変更し、背景は `#1a1a1a` を維持する
 
 ---
 
@@ -775,6 +809,7 @@ pytest test_{module_name}.py -v -k "keyword"
 - [ ] 実行コマンドが記載されている
 - [ ] 環境要件が記載されている
 - [ ] 変更履歴が更新されている
+- [ ] 全Mermaidダイアグラムに黒背景・白文字スタイルが適用されている（`classDef default fill:#000,stroke:#fff,color:#fff`）
 
 ---
 
@@ -783,3 +818,4 @@ pytest test_{module_name}.py -v -k "keyword"
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版作成 |
+| 1.1 | §11 カラーテーマ（黒背景・白文字）を必須仕様として追加、チェックリストに確認項目を追加 |
