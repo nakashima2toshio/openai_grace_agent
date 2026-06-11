@@ -1,6 +1,6 @@
 # Streamlit UIページ ドキュメント フォーマット仕様書
 
-**Version 1.1** | 最終更新: 2025-01-29
+**Version 1.2** | 最終更新: 2026-06-11
 
 ---
 
@@ -782,6 +782,7 @@ except Exception as e:
 - [ ] イベント処理が記載されている
 - [ ] エラーハンドリングが記載されている
 - [ ] 変更履歴が更新されている
+- [ ] 全Mermaidダイアグラムに黒背景・白文字スタイルが適用されている
 
 ---
 
@@ -839,3 +840,60 @@ flowchart TB
 - ノード名に日本語を使用する場合は `[""]` で囲む
 - `<br/>` で改行可能
 - subgraph内のノードは自動的にグループ化される
+
+### カラーテーマ（黒背景・白文字）— **必須**
+
+すべてのMermaidダイアグラムに以下のスタイルを適用すること。
+
+| 要素 | 設定値 |
+|------|--------|
+| ノード背景色 | `fill:#000` |
+| ノードテキスト色 | `color:#fff` |
+| ノード枠線色 | `stroke:#fff` |
+| サブグラフ背景色 | `fill:#1a1a1a` |
+| サブグラフテキスト色 | `color:#fff` |
+| サブグラフ枠線色 | `stroke:#fff` |
+
+#### flowchart 図の実装パターン
+
+```markdown
+```mermaid
+flowchart TB
+    subgraph Layer["レイヤー名"]
+        NodeA["ノードA"]
+        NodeB["ノードB"]
+    end
+    NodeA --> NodeB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class NodeA,NodeB default
+style Layer fill:#1a1a1a,stroke:#fff,color:#fff
+```
+```
+
+**必須ルール:**
+
+1. `classDef default fill:#000,stroke:#fff,color:#fff` を必ずブロック末尾に追加する
+2. 全ノードに `class <node_ids> default` を付与する
+3. 全サブグラフに `style <subgraph_name> fill:#1a1a1a,stroke:#fff,color:#fff` を付与する
+
+#### sequenceDiagram 図の実装パターン
+
+```markdown
+```mermaid
+%%{ init: { "theme": "base", "themeVariables": {
+  "background": "#000000", "mainBkg": "#000000",
+  "textColor": "#ffffff", "lineColor": "#ffffff",
+  "actorBkg": "#000000", "actorTextColor": "#ffffff",
+  "actorLineColor": "#ffffff", "noteBkg": "#1a1a1a",
+  "noteTextColor": "#ffffff" } } }%%
+sequenceDiagram
+    participant A as "参加者A"
+    A->>B: メッセージ
+```
+```
+
+**必須ルール:**
+
+- `sequenceDiagram` の前に必ず `%%{ init: ... }%%` ヘッダーを挿入する
+- `classDef` / `class` 行は `sequenceDiagram` では使用しない（非対応）
