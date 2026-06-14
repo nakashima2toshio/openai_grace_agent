@@ -135,6 +135,142 @@ Main packages:
 
 ---
 
+# プロジェクト固有規約
+
+## 7. Mermaidダイアグラム スタイル規約
+
+### 7.1 構文バージョン
+
+**PyCharm Pro v9 互換構文**を使用する。
+
+- ノードラベルにバッククォートや markdown文字列（`` `text` ``）を使用しない
+- 特殊文字を含むノードラベルは必ずダブルクォート（`"..."` ）で囲む
+
+### 7.2 カラーテーマ（黒背景・白文字）— **必須**
+
+すべてのMermaidダイアグラムに以下のスタイルを適用すること。
+
+| 要素 | 設定値 |
+|---|---|
+| ノード背景色 | `fill:#000` |
+| ノードテキスト色 | `color:#fff` |
+| ノード枠線色 | `stroke:#fff` |
+| サブグラフ背景色 | `fill:#1a1a1a` |
+| サブグラフテキスト色 | `color:#fff` |
+| サブグラフ枠線色 | `stroke:#fff` |
+
+### 7.3 flowchart / graph 図の実装パターン
+
+```
+flowchart TB
+    subgraph Layer["レイヤー名"]
+        NodeA["ノードA"]
+        NodeB["ノードB"]
+    end
+    NodeA --> NodeB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class NodeA,NodeB default
+style Layer fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+**必須ルール:**
+
+1. `classDef default fill:#000,stroke:#fff,color:#fff` を必ずブロック末尾に追加する
+2. `classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff` を追加する
+3. 全ノードに `class <node_ids> default` を付与する
+4. 全サブグラフに `style <subgraph_name> fill:#1a1a1a,stroke:#fff,color:#fff` を付与する
+5. 既存の `style`/`classDef`/`class` 行は重複しないよう整理する
+
+### 7.4 sequenceDiagram 図の実装パターン
+
+```
+%%{ init: { "theme": "base", "themeVariables": {
+  "background": "#000000", "mainBkg": "#000000",
+  "textColor": "#ffffff", "lineColor": "#ffffff",
+  "actorBkg": "#000000", "actorTextColor": "#ffffff",
+  "actorLineColor": "#ffffff", "noteBkg": "#1a1a1a",
+  "noteTextColor": "#ffffff" } } }%%
+sequenceDiagram
+    participant A as "参加者A"
+    A->>B: メッセージ
+```
+
+**必須ルール:**
+
+- `sequenceDiagram` の前に必ず `%%{ init: ... }%%` ヘッダーを挿入する
+- `classDef` / `class` 行は `sequenceDiagram` では使用しない（非対応）
+
+---
+
+## 8. コーディング規約
+
+### 8.1 型ヒント
+
+```python
+# ❌ 誤り
+def func(callback: Optional[callable] = None): ...
+
+# ✅ 正しい
+from typing import Optional, Callable
+def func(callback: Optional[Callable] = None): ...
+```
+
+### 8.2 Streamlit DataFrame
+
+```python
+# ❌ 誤り（TypeError: 'str' cannot be interpreted as an integer）
+st.dataframe(df, width='stretch')
+
+# ✅ 正しい
+st.dataframe(df, use_container_width=True)
+```
+
+### 8.3 出力ファイル命名（チャンク分割）
+
+```bash
+# ✅ デフォルト: 固定ファイル名（後続バッチとの連携のため）
+cc_news_1per.csv  →  output_chunked/cc_news_1per_chunks.csv
+
+# タイムスタンプが必要な場合は --timestamp オプションで明示指定
+python -m chunking.csv_text_to_chunks_text_csv \
+  --input-file OUTPUT/cc_news_1per.csv \
+  --output output_chunked \
+  --timestamp   # ← これがある場合のみ日時サフィックスを付与
+```
+
+---
+
+## 9. ドキュメント規約
+
+### 9.1 技術スタック表記の統一
+
+コードサンプル・説明文・Mermaid図内の表記を以下に統一すること。
+
+| 用途 | ✅ 正しい表記 | ❌ 禁止表記 |
+|---|---|---|
+| LLM全般 | `OpenAI GPT` / `GPT` | `Anthropic Claude`, `Gemini`, `claude-sonnet-4-6` |
+| デフォルトモデル | `gpt-5-mini` | `claude-sonnet-4-6`, `gpt-5.4-mini`, `gemini-3-flash-preview` |
+| Embedding | `OpenAI Embedding` / `text-embedding-3-large`（3072次元） | `gemini-embedding-001`, `claude` 系 |
+| LLM/Embeddingクライアント | `create_llm_client("openai")` / `create_embedding_client("openai")` | `"anthropic"` / `"gemini"` |
+| LLM用APIキー | `OPENAI_API_KEY` | `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`（LLM用途） |
+| Qdrantコレクション | `*_openai` | `*_anthropic`, `*_gemini` |
+
+### 9.2 ドキュメント一覧
+
+| ファイル | 内容 |
+|---|---|
+| `README.md` | プロジェクト全体・GRACE自律エージェント詳細 |
+| `readme_make_env.md` | Mac向け環境構築手順 |
+| `readme_usage_tools.md` | チャンク作成・Q&A生成・Qdrant登録の操作手順 |
+| `readme_rag.md` | RAGパイプライン設計・クラス・関数 IPO詳細 |
+| `readme_react_reflection.md` | ReAct+Reflectionエージェントの設計と実装 |
+| `readme_autonomous_agent.md` | GRACEアーキテクチャ（Plan+Executor）詳細 |
+| `docs/openai_refactor_todo_june14.md` | リファクタリング横展開 TODO（進捗チェックリスト） |
+| `docs/openai_anthropic_file_comparison_june14.md` | openai/anthropic 実ファイル比較表 |
+
+---
+
 # ⚠️ CRITICAL RULES - MUST READ BEFORE ANY MODIFICATION ⚠️
 
 ## 1. OpenAI Model Names - NEVER CREATE MAPPINGS
