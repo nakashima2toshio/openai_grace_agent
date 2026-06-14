@@ -340,14 +340,15 @@ def create_output_directory() -> Path:
 
 
 @safe_execute
-def save_files_to_output(df_processed, dataset_type: str, csv_data: str, text_data: str = None) -> Dict[str, str]:
+def save_files_to_output(df_processed, dataset_type: str, csv_data: str, text_data: str = None, output_name: str = None) -> Dict[str, str]:
     """処理済みデータをOUTPUTフォルダに保存"""
     output_dir = create_output_directory()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     saved_files = {}
 
     # CSVファイルの保存
-    csv_filename = f"preprocessed_{dataset_type}.csv"
+    base_name = output_name if output_name else f"preprocessed_{dataset_type}"
+    csv_filename = f"{base_name}.csv"
     csv_path = output_dir / csv_filename
 
     with open(csv_path, 'w', encoding='utf-8') as f:

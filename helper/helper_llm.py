@@ -49,6 +49,21 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ================================================================
+# モジュールレベル・トークン集計
+# executor._execute_step() から reset/get を呼び出す
+# ================================================================
+_token_accumulator: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+
+def reset_token_counter() -> None:
+    """ステップ実行前にリセット（executor._execute_step から呼び出す）"""
+    _token_accumulator["input_tokens"]  = 0
+    _token_accumulator["output_tokens"] = 0
+
+def get_token_counter() -> Dict[str, int]:
+    """現在の累計トークン数を返す（executor._execute_step から呼び出す）"""
+    return dict(_token_accumulator)
+
 
 # ================================================================
 # LLM モデル設定
@@ -216,6 +231,9 @@ class OpenAIClient(LLMClient):
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.content
 
     def generate_structured(
@@ -241,6 +259,9 @@ class OpenAIClient(LLMClient):
             response_format=response_schema,
             **kwargs,
         )
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.parsed
 
     def count_tokens(self, text: str, model: Optional[str] = None) -> int:
@@ -312,6 +333,9 @@ class OpenAIClient(LLMClient):
             create_kwargs["temperature"] = kwargs["temperature"]
 
         response = self.client.chat.completions.create(**create_kwargs)
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         msg = response.choices[0].message
 
         # [MIGRATION] ツール呼び出し抽出
