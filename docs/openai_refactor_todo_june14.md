@@ -171,12 +171,14 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [x] #59 実行ループ統合（薄いラッパー化で二重ループ解消）✅ b62ddc8
 
 ### Phase B — 登録・Q/A・パイプライン
-- [ ] #55 make_qa_register_qdrant 死にフラグ＋--combine-rows 撤去
-- [ ] #54 make_qa.py スマート生成フラグ撤去
-- [ ] #52 use_smart_generation フラグ撤去（残箇所）
-- [ ] #51 内容ハッシュ ID ＋重複除去＋先読み並列化（3 部）
-- [ ] #67 collect_results 完了順＋on_result
-- [ ] #53 JSONL 逐次永続化＋クラッシュ再開
+- [x] #55 make_qa_register_qdrant 死にフラグ＋--combine-rows 撤去 ✅ b72ec9f
+- [x] #54 make_qa.py スマート生成フラグ撤去 ✅ 192bf67
+- [x] #52 use_smart_generation フラグ撤去（celery/pipeline/make_qa）✅ 192bf67
+  - ⚠️ 残: smart_qa_generator.py の 2段(analyze_chunk+generate_qa_pairs)→構造化出力1回の単段化は
+    OpenAI Structured Output 設計＋実機検証が必要なため**保留**（フラグ撤去は完了）
+- [x] #51 内容ハッシュ ID ＋重複除去＋先読み並列化（3 部）✅ 192bf67
+- [x] #67 collect_results 完了順＋on_result＋_GENERATOR_CACHE ✅ 192bf67
+- [x] #53 JSONL 逐次永続化＋クラッシュ再開 ✅ 192bf67
 - [x] #82 get_collection_embedding_params（DONE 相当）
 
 ### Phase C — テスト
