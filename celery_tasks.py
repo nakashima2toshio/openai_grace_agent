@@ -637,7 +637,7 @@ if __name__ == "__main__":
 
         # クラスメソッド確認
         print(f"クラス: {SmartQAGenerator}")
-        print("メソッド: __init__, analyze_chunk, generate_qa_pairs, process_chunk")
+        print("メソッド: __init__, analyze_and_generate, process_chunk")
 
     except ImportError as e:
         print(f"❌ インポート失敗: {e}")
