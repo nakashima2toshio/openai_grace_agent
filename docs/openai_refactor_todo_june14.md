@@ -163,11 +163,11 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [x] #58 PlannerConfig/ExecutorConfig（最優先・足場）✅ 20212cf
 - [x] #56 eval 撤去 → ast.literal_eval ✅ 20212cf
 - [x] #57 _run_tool_with_timeout ✅ fbf2e4e
-- [ ] #60 _prefetch_parallel_searches
+- [x] #60 _prefetch_parallel_searches ✅ 1e1d768
 - [x] #61 二層計画（_create_rule_based_plan）✅ 8df0460
 - [x] #64 _should_trigger_replan（検索ステップ限定）✅ b62ddc8
-- [ ] #65 evaluate_final（FinalEvaluationResult）
-- [ ] #66 _build_confidence_factors 共通化
+- [x] #65 evaluate_final（FinalEvaluationResult）✅ 3c4db36
+- [x] #66 _build_confidence_factors 共通化 ✅ 8cfafa8
 - [x] #59 実行ループ統合（薄いラッパー化で二重ループ解消）✅ b62ddc8
 
 ### Phase B — 登録・Q/A・パイプライン
