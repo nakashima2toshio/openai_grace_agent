@@ -14,13 +14,13 @@
   - response.text (JSON文字列) → response.choices[0].message.parsed (Pydanticインスタンス)
   - api_key: GOOGLE_API_KEY → OPENAI_API_KEY
   - 不完全JSON検出・finish_reason チェック → max_completion_tokens超過検出に変更
-  - max_tokens → max_completion_tokens（gpt-5.4-mini以降の仕様変更に対応）
+  - max_tokens → max_completion_tokens（gpt-5-mini以降の仕様変更に対応）
 """
 
 import asyncio
 import json
 import logging
-from typing import Type, Optional
+from typing import Optional, Type
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -60,10 +60,38 @@ class AsyncAPIClient:
         self._total_requests = 0
         self._failed_requests = 0
         self._truncated_responses = 0
+        # トークン使用量の集計（プロバイダー中立な会計）。
+        # OpenAI は usage.prompt_tokens / completion_tokens を返す。
+        # キャッシュ（自動）読み取り分は usage.prompt_tokens_details.cached_tokens。
+        self._usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,
+        }
 
     def _is_truncated(self, finish_reason: Optional[str]) -> bool:
         """レスポンスが max_completion_tokens で切断されたか判定"""
         return finish_reason == "length"
+
+    def _accumulate_usage(self, response) -> None:
+        """レスポンスのトークン使用量を集計する。
+
+        OpenAI Chat Completions の usage:
+          - prompt_tokens     : 入力トークン
+          - completion_tokens : 出力トークン
+          - prompt_tokens_details.cached_tokens : キャッシュ読取（自動）
+
+        プロンプトキャッシュは OpenAI 側で自動適用されるため
+        cache_control 等の明示指定は行わない（プロバイダー中立な会計のみ）。
+        """
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        self._usage["input_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
+        self._usage["output_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            self._usage["cached_input_tokens"] += getattr(details, "cached_tokens", 0) or 0
 
     async def generate_content(
         self,
@@ -106,7 +134,7 @@ class AsyncAPIClient:
                 # [MIGRATION] asyncio.to_thread で同期APIを非同期実行
                 # Gemini: client.models.generate_content(model, contents, config=GenerateContentConfig(...))
                 # OpenAI: client.beta.chat.completions.parse(model, messages, response_format=PydanticClass)
-                # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens を使用する
+                # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens を使用する
                 response = await asyncio.to_thread(
                     self.client.beta.chat.completions.parse,
                     model=model,
@@ -114,6 +142,8 @@ class AsyncAPIClient:
                     messages=[{"role": "user", "content": contents}],
                     response_format=response_schema,
                 )
+
+                self._accumulate_usage(response)
 
                 choice = response.choices[0]
                 finish_reason = choice.finish_reason
@@ -181,7 +211,8 @@ class AsyncAPIClient:
                 (self._total_requests - self._failed_requests) / self._total_requests * 100
                 if self._total_requests > 0 else 0
             ),
-            "concurrency"        : self.max_workers
+            "concurrency"        : self.max_workers,
+            "usage"              : dict(self._usage),
         }
 
     def reset_stats(self):
@@ -189,3 +220,8 @@ class AsyncAPIClient:
         self._total_requests = 0
         self._failed_requests = 0
         self._truncated_responses = 0
+        self._usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,
+        }

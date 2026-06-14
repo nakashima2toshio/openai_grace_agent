@@ -10,14 +10,13 @@ Migration: Gemini → Anthropic (2026-04-20) → OpenAI (2026-04-25)
   - LLM_MODELS / LLM_PRICING / LLM_LIMITS に Claude モデルを追加
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Type, List, Dict, Tuple
-import os
-import json
 import logging
+import os
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-from pydantic import BaseModel
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 # ================================================================
 # SDK imports
@@ -48,6 +47,21 @@ import tiktoken
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# ================================================================
+# モジュールレベル・トークン集計
+# executor._execute_step() から reset/get を呼び出す
+# ================================================================
+_token_accumulator: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+
+def reset_token_counter() -> None:
+    """ステップ実行前にリセット（executor._execute_step から呼び出す）"""
+    _token_accumulator["input_tokens"]  = 0
+    _token_accumulator["output_tokens"] = 0
+
+def get_token_counter() -> Dict[str, int]:
+    """現在の累計トークン数を返す（executor._execute_step から呼び出す）"""
+    return dict(_token_accumulator)
 
 
 # ================================================================
@@ -195,7 +209,7 @@ class LLMClient(ABC):
 # ================================================================
 
 class OpenAIClient(LLMClient):
-    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-5.4-mini"):
+    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-5-mini"):
         if not OpenAI:
             raise ImportError("openai package is not installed.")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -212,10 +226,13 @@ class OpenAIClient(LLMClient):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.content
 
     def generate_structured(
@@ -232,7 +249,7 @@ class OpenAIClient(LLMClient):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.beta.chat.completions.parse(
@@ -241,6 +258,9 @@ class OpenAIClient(LLMClient):
             response_format=response_schema,
             **kwargs,
         )
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         return response.choices[0].message.parsed
 
     def count_tokens(self, text: str, model: Optional[str] = None) -> int:
@@ -312,6 +332,9 @@ class OpenAIClient(LLMClient):
             create_kwargs["temperature"] = kwargs["temperature"]
 
         response = self.client.chat.completions.create(**create_kwargs)
+        if getattr(response, "usage", None):
+            _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
+            _token_accumulator["output_tokens"] += response.usage.completion_tokens or 0
         msg = response.choices[0].message
 
         # [MIGRATION] ツール呼び出し抽出
@@ -758,7 +781,7 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:  # [MIGR
         text = llm.generate_content("こんにちは")
 
         # モデル指定
-        llm = create_llm_client("openai", default_model="gpt-5.4-mini")
+        llm = create_llm_client("openai", default_model="gpt-5-mini")
 
         # anthropic_grace_agent（後方互換）
         llm = create_llm_client("anthropic")

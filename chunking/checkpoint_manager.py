@@ -6,11 +6,11 @@
 """
 
 import json
+import logging
 import os
 import shutil
 from datetime import datetime
-from typing import List, Optional, Any
-import logging
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

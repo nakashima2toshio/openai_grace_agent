@@ -20,6 +20,7 @@ smart_qa_generator.py - コンテンツを考慮したインテリジェントQ/
 import json
 import logging
 from typing import Dict, List, Optional
+
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient を helper_llm 経由で使用
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
@@ -454,7 +455,7 @@ if __name__ == "__main__":
             analysis = result['analysis']
             qa_pairs = result['qa_pairs']
 
-            print(f"【分析結果】")
+            print("【分析結果】")
             print(f"  Q/A数      : {analysis['qa_count']}")
             print(f"  重要度     : {analysis['importance_score']:.2f}")
             print(f"  複雑さ     : {analysis['complexity']}")
@@ -462,7 +463,7 @@ if __name__ == "__main__":
             print(f"  理由       : {analysis['reasoning']}")
 
             if qa_pairs:
-                print(f"\n【生成されたQ/A】")
+                print("\n【生成されたQ/A】")
                 for j, qa in enumerate(qa_pairs, 1):
                     print(f"\n  Q{j} ({qa.get('topic', 'N/A')}): {qa['question']}")
                     print(f"  A{j}: {qa['answer']}")
@@ -479,7 +480,7 @@ if __name__ == "__main__":
     print(f"総Q/A数            : {stats['total_qa_pairs']}")
     print(f"平均Q/A数/チャンク : {stats['avg_qa_per_chunk']:.2f}")
     print(f"平均重要度         : {stats['avg_importance_score']:.2f}")
-    print(f"\nQ/A数分布:")
+    print("\nQ/A数分布:")
     for count, freq in sorted(stats['qa_distribution'].items()):
         print(f"  {count}個: {freq}チャンク")
 

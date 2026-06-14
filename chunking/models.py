@@ -5,6 +5,7 @@ Gemini APIのレスポンススキーマとして使用
 """
 
 from typing import List
+
 from pydantic import BaseModel, Field
 
 

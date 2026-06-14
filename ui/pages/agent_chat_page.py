@@ -8,17 +8,16 @@ Gemini 2.0 Flash を使用した ReAct 型エージェントとの対話イン�
 Qdrant 上のナレッジベース(コレクション)を動的に選択し、RAG 検索を行いながら回答します。
 """
 
-import os
 import logging
-import streamlit as st
+from typing import List
+
 import pandas as pd
-from typing import Dict, List, Any, Optional, Union, Tuple
-from qdrant_client import QdrantClient
+import streamlit as st
 
 # Configuration and Tools
 from config import AgentConfig, GeminiConfig
-from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
 from qdrant_client_wrapper import get_qdrant_client
+from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ def show_agent_chat_page():
                         try:
                             col_info = client.get_collection(target_collection)
                             total_points = col_info.points_count if hasattr(col_info, 'points_count') else "N/A"
-                        except:
+                        except Exception:
                             total_points = "N/A"
 
                         st.caption(f"📈 表示: {len(data_list)} 件 / 総ポイント数: {total_points}")

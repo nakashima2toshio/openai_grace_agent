@@ -7,28 +7,29 @@ GRACE Planner - 計画生成エージェント
     - AnthropicClient → OpenAIClient (via create_llm_client)
     - create_llm_client("anthropic") → create_llm_client("openai")
     - response_schema=ExecutionPlan → generate_structured() で Structured Outputs に代替
-    - max_tokens → max_completion_tokens（gpt-5.4-mini以降の仕様変更）
+    - max_tokens → max_completion_tokens（gpt-5-mini以降の仕様変更）
     - AFC関連バグ回避コードを削除（Anthropic では不要）
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional
+
+from qdrant_client import QdrantClient
 
 # [MIGRATION] 削除: from google import genai / from google.genai import types
 # [MIGRATION] 追加: AnthropicClient を helper_llm 経由で使用
 from helper.helper_llm import create_llm_client
+from regex_mecab import KeywordExtractor
+from services.prompts import SEARCH_QUERY_INSTRUCTION
+from services.qdrant_service import get_all_collections
 
+from .config import GraceConfig, get_config
 from .schemas import (
     ExecutionPlan,
     PlanStep,
     create_plan_id,
     validate_plan_dependencies,
 )
-from .config import get_config, GraceConfig
-from services.qdrant_service import get_all_collections
-from qdrant_client import QdrantClient
-from services.prompts import SEARCH_QUERY_INSTRUCTION
-from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +146,100 @@ class Planner:
 
         logger.info(f"Planner initialized with model: {self.model_name}")
 
+    # LLM計画生成を強制するクエリマーカー（明示的なWeb検索指示など）
+    _LLM_PLAN_MARKERS = (
+        "最新ニュース", "ニュースを検索", "web検索", "ウェブ検索", "webで検索",
+    )
+
     def create_plan(self, query: str) -> ExecutionPlan:
         """
-        質問から実行計画を生成（LLM使用版）
+        質問から実行計画を生成（二層方式・#61）
+
+        - 通常のクエリ: ルールベースの2ステップ計画を即時生成（LLM呼び出しなし）
+        - 複雑なクエリ / 明示的なWeb検索指示: LLMによる計画生成
 
         Args:
             query: ユーザーの質問
         Returns:
-            ExecutionPlan: LLMが生成した実行計画
+            ExecutionPlan: 実行計画
+        """
+        logger.info(f"Creating execution plan for: {query[:50]}...")
+
+        heuristic_complexity = self.estimate_complexity(query)
+
+        if not self._should_use_llm_plan(query, heuristic_complexity):
+            logger.info(
+                f"Using rule-based plan (complexity={heuristic_complexity:.2f} < "
+                f"{self.config.planner.llm_plan_complexity_threshold})"
+            )
+            return self._create_rule_based_plan(query, heuristic_complexity)
+
+        return self._create_llm_plan(query)
+
+    def _should_use_llm_plan(self, query: str, heuristic_complexity: float) -> bool:
+        """LLM計画生成を使用すべきか判定する"""
+        if self.config.planner.force_llm_plan:
+            return True
+
+        query_lower = query.lower()
+        if any(marker in query_lower for marker in self._LLM_PLAN_MARKERS):
+            return True
+
+        return heuristic_complexity >= self.config.planner.llm_plan_complexity_threshold
+
+    def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan:
+        """
+        ルールベースの標準2ステップ計画を生成（LLM呼び出しなし）
+
+        rag_search（全コレクション網羅・fallback=web_search）→ reasoning の
+        標準構成。LLM計画生成と同じ計画構造のため、Executor 側の
+        動的フォールバック連鎖（web_search / ask_user）もそのまま機能する。
+
+        Args:
+            query: ユーザーの質問
+            complexity: 推定複雑度
+        Returns:
+            ExecutionPlan: 標準2ステップ計画
+        """
+        return ExecutionPlan(
+            original_query=query,
+            complexity=complexity,
+            estimated_steps=2,
+            requires_confirmation=False,
+            steps=[
+                PlanStep(
+                    step_id=1,
+                    action="rag_search",
+                    description="全コレクションから関連情報を検索",
+                    query=query,
+                    collection=None,
+                    expected_output="関連するドキュメントや情報",
+                    fallback="web_search",
+                    timeout_seconds=30
+                ),
+                PlanStep(
+                    step_id=2,
+                    action="reasoning",
+                    description="取得した情報を元に回答を生成",
+                    query=None,
+                    collection=None,
+                    depends_on=[1],
+                    expected_output="ユーザーへの回答",
+                    fallback=None,
+                    timeout_seconds=30
+                )
+            ],
+            success_criteria="ユーザーの質問に適切に回答できている",
+            plan_id=create_plan_id()
+        )
+
+    def _create_llm_plan(self, query: str) -> ExecutionPlan:
+        """
+        LLMによる計画生成（複雑なクエリ向け）
+
+        複雑度は計画生成の構造化出力（plan.complexity）をそのまま使用する。
+        旧実装の estimate_complexity_with_llm() による別途 LLM 呼び出しは、
+        同等の値を1回の構造化出力で得られるため統合・削除した（#61・レイテンシ/コスト削減）。
         """
         logger.info(f"Creating execution plan for: {query[:50]}...")
 
@@ -160,9 +247,6 @@ class Planner:
             # 利用可能なコレクションを取得
             available_collections = self._get_available_collections()
             collections_str = ", ".join(available_collections) if available_collections else "(コレクションなし)"
-
-            # 複雑度を推定（LLM使用）
-            estimated_complexity = self.estimate_complexity_with_llm(query)
 
             # プロンプトを構築
             prompt = PLAN_GENERATION_PROMPT.format(
@@ -194,7 +278,7 @@ class Planner:
                         prompt=prompt,
                         response_schema=ExecutionPlan,
                         model=self.model_name,
-                        max_completion_tokens=8192,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                        max_completion_tokens=8192,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                         system="You are an expert planning agent. Always respond using the provided tool.",
                         temperature=self.config.llm.temperature,
                     )
@@ -218,8 +302,7 @@ class Planner:
             if plan is None:
                 raise last_error or ValueError("Plan creation failed after all retries")
 
-            # 事前に計算した正確な複雑度を適用
-            plan.complexity = estimated_complexity
+            # 複雑度は構造化出力（plan.complexity）をそのまま使用する（#61）
 
             # 計画IDを設定
             plan.plan_id = create_plan_id()
@@ -381,7 +464,7 @@ class Planner:
             complexity_str = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=0.1,
             )
 
@@ -441,7 +524,7 @@ class Planner:
                 prompt=refine_prompt,
                 response_schema=ExecutionPlan,
                 model=self.model_name,
-                max_completion_tokens=4096,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=4096,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=self.config.llm.temperature,
             )
 

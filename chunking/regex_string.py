@@ -1,9 +1,7 @@
 # Text to chunks[List]
 # 日本語・英語対応版
 import re
-from typing import List, Dict, Tuple
-from collections import Counter
-
+from typing import Dict, List
 
 # =============================================================================
 # チャンク分割機能（日本語・英語対応）

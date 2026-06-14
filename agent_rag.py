@@ -60,13 +60,12 @@ import streamlit as st
 
 # UIページをインポート
 from ui.pages import (
-    show_system_explanation_page,
-    show_qdrant_search_page,
     show_grace_chat_page,
+    show_qdrant_search_page,
+    show_system_explanation_page,
 )
 from ui.pages.agent_chat_page import show_agent_chat_page
 from ui.pages.log_viewer_page import show_log_viewer_page
-
 
 # --- 関連ドキュメント定義 ---
 RAG_DATA_DOCS = [

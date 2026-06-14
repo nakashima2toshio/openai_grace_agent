@@ -69,34 +69,61 @@ uv run python qa_qdrant/make_qa_register_qdrant.py \
   # → chunks_output/document_chunks_20250118_123456_simple.csv （シンプル版）も同時生成
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
+import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import pandas as pd
 import tiktoken
-import re
 from tqdm.asyncio import tqdm as async_tqdm
 
 # 既存のインポート
 from chunking.async_api_client import AsyncAPIClient
 from chunking.checkpoint_manager import CheckpointManager
-from chunking.models import StructuralResult, ParagraphUnit, ContinuityResult
-from chunking.prompts import (
-    PARAGRAPH_SEPARATION_PROMPT,
-    SEMANTIC_CHUNKING_PROMPT,
-    CONTINUITY_CHECK_PROMPT
-)
-from chunking.utils import (
-    setup_logging,
-    format_time,
-    format_size,
-    estimate_api_calls
-)
+from chunking.models import ContinuityResult, StructuralResult
+from chunking.prompts import CONTINUITY_CHECK_PROMPT, PARAGRAPH_SEPARATION_PROMPT, SEMANTIC_CHUNKING_PROMPT
 from chunking.regex_string import chunk_text
+from chunking.utils import format_size, setup_logging
 
 logger = logging.getLogger(__name__)
+
+# チャンクの最大トークン数（tiktoken cl100k_base 換算）。
+# - Step3 の結合上限と、最終チャンクの強制分割上限の両方に使う
+# - Embedding（text-embedding-3-large）の入力上限を超えると超過分が
+#   無言で切り捨てられるため、上限は必ずそれ未満にすること
+MAX_CHUNK_TOKENS = 512
+
+# Embedding モデルの入力トークン上限（プロバイダー中立な安全弁）。
+# max_chunk_tokens がこれ以上の設定は警告する。
+# anthropic の数値（2048）を踏襲する。text-embedding-3-large の実上限は
+# ~8191 だが、本定数は「これ未満を推奨する」保守的なガード値である。
+EMBEDDING_INPUT_TOKEN_LIMIT = 2048
+
+_TOKENIZER = None
+_TOKENIZER_FAILED = False
+
+
+def _count_tokens(text: str) -> int:
+    """トークン数を数える。
+
+    tiktoken の BPE 取得に失敗する環境（オフライン等）では
+    文字数/4 の概算にフォールバックする。
+    """
+    global _TOKENIZER, _TOKENIZER_FAILED
+    if _TOKENIZER is None and not _TOKENIZER_FAILED:
+        try:
+            _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            _TOKENIZER_FAILED = True
+            logger.warning(f"tiktoken 初期化失敗、文字数/4 で概算します: {e}")
+    if _TOKENIZER is not None:
+        return len(_TOKENIZER.encode(text))
+    # 概算: ASCII は約4文字≈1トークン、非ASCII（日本語等）は約1文字≈1トークン
+    ascii_chars = sum(1 for ch in text if ord(ch) < 128)
+    return max(1, ascii_chars // 4 + (len(text) - ascii_chars))
 
 
 # ================================================================
@@ -195,15 +222,52 @@ def _postprocess_paragraph(paragraph: str) -> str:
 # CSV読み込み機能
 # ================================================================
 
-def load_text_from_csv(
+def _detect_text_column(df: pd.DataFrame, text_column: Optional[str] = None) -> str:
+    """テキストカラムを特定する（指定があれば検証、なければ自動検出）"""
+    if text_column:
+        if text_column not in df.columns:
+            raise ValueError(
+                f"指定されたカラム '{text_column}' が見つかりません。\n"
+                f"利用可能なカラム: {list(df.columns)}"
+            )
+        return text_column
+
+    text_candidates = [
+        'text', 'Text', 'TEXT',
+        'content', 'Content', 'CONTENT',
+        'Combined_Text', 'combined_text',
+        'body', 'Body', 'BODY',
+        'document', 'Document',
+        'answer', 'Answer'
+    ]
+    for candidate in text_candidates:
+        if candidate in df.columns:
+            return candidate
+
+    col = df.columns[0]
+    logger.warning(
+        f"テキストカラムを自動検出できませんでした。\n"
+        f"  最初のカラム '{col}' を使用します。"
+    )
+    return col
+
+
+def load_documents_from_csv(
         csv_path: str,
         text_column: Optional[str] = None,
         max_rows: Optional[int] = None,
-        combine_rows: bool = False
-) -> str:
-    """CSVファイルからテキストを読み込む"""
+) -> List[Dict]:
+    """CSVファイルから文書リストを読み込む（1行=1文書）。
+
+    旧実装（load_text_from_csv）は全行を1つの巨大テキストに結合しており、
+    文書（記事）境界が破壊されていた。本関数は行（文書）単位の構造を
+    保持して返す。doc_id により元文書へのトレーサビリティを確保する。
+
+    Returns:
+        [{'doc_id': 行番号, 'text': テキスト}, ...]（空行は除外）
+    """
     logger.info("=" * 60)
-    logger.info("CSV読み込み処理")
+    logger.info("CSV読み込み処理（文書単位）")
     logger.info("=" * 60)
 
     try:
@@ -217,57 +281,51 @@ def load_text_from_csv(
         df = df.head(max_rows)
         logger.info(f"  ✂️  制限: {len(df)} 行に制限")
 
-    if text_column:
-        if text_column not in df.columns:
-            raise ValueError(
-                f"指定されたカラム '{text_column}' が見つかりません。\n"
-                f"利用可能なカラム: {list(df.columns)}"
-            )
-        col = text_column
-    else:
-        text_candidates = [
-            'text', 'Text', 'TEXT',
-            'content', 'Content', 'CONTENT',
-            'Combined_Text', 'combined_text',
-            'body', 'Body', 'BODY',
-            'document', 'Document',
-            'answer', 'Answer'
-        ]
-
-        col = None
-        for candidate in text_candidates:
-            if candidate in df.columns:
-                col = candidate
-                break
-
-        if col is None:
-            col = df.columns[0]
-            logger.warning(
-                f"テキストカラムを自動検出できませんでした。\n"
-                f"  最初のカラム '{col}' を使用します。"
-            )
-
+    col = _detect_text_column(df, text_column)
     logger.info(f"  📝 テキストカラム: '{col}'")
 
-    texts = df[col].fillna('').astype(str).tolist()
-    texts = [t.strip() for t in texts if t.strip()]
+    documents: List[Dict] = []
+    for row_idx, value in df[col].fillna('').astype(str).items():
+        doc_text = value.strip()
+        if doc_text:
+            documents.append({"doc_id": int(row_idx), "text": doc_text})
 
-    logger.info(f"  ✅ 抽出: {len(texts)} 件の非空テキスト")
+    total_size = sum(len(d["text"]) for d in documents)
+    logger.info(f"  ✅ 抽出: {len(documents)} 件の文書（非空行）")
+    logger.info(f"  📊 総サイズ: {format_size(total_size)}")
+    return documents
 
-    if combine_rows:
-        combined_text = "\n\n".join(texts)
-        logger.info(f"  🔗 結合モード: 全 {len(texts)} 行を1つのテキストに結合")
-    else:
-        combined_text = "\n\n".join(texts)
-        logger.info(f"  📄 個別モード: {len(texts)} 個のテキストを改行区切りで処理")
 
-    logger.info(f"  📊 総サイズ: {format_size(len(combined_text))}")
-    return combined_text
+def load_text_from_csv(
+        csv_path: str,
+        text_column: Optional[str] = None,
+        max_rows: Optional[int] = None,
+        combine_rows: bool = False
+) -> str:
+    """CSVファイルからテキストを読み込む（後方互換: 全行結合）。
+
+    Note:
+        文書境界を保持するには load_documents_from_csv() を使用すること。
+        combine_rows は後方互換のため受け取るが、いずれのモードでも
+        全行を改行区切りで結合した文字列を返す（旧挙動）。
+    """
+    documents = load_documents_from_csv(csv_path, text_column, max_rows)
+    return "\n\n".join(d["text"] for d in documents)
 
 
 # ================================================================
 # ✅ 新規追加: シンプルCSV保存機能（Textカラムのみ）
 # ================================================================
+
+def _as_chunk_dicts(chunks: List) -> List[Dict]:
+    """チャンクリストを辞書形式に正規化する（str / dict 混在を許容）"""
+    normalized = []
+    for c in chunks:
+        if isinstance(c, dict):
+            normalized.append({"text": c.get("text", ""), "doc_id": c.get("doc_id")})
+        else:
+            normalized.append({"text": str(c), "doc_id": None})
+    return normalized
 
 def save_chunks_as_simple_csv(
         chunks: List[str],
@@ -295,14 +353,15 @@ def save_chunks_as_simple_csv(
         "チャンク2のテキスト..."
     """
     data = []
-    for chunk_text in chunks:
+    for chunk in _as_chunk_dicts(chunks):
+        chunk_str = chunk["text"]
         # 改行・空白を正規化
         if normalize_whitespace:
-            chunk_text_cleaned = _normalize_whitespace(chunk_text)
+            chunk_cleaned = _normalize_whitespace(chunk_str)
         else:
-            chunk_text_cleaned = chunk_text
+            chunk_cleaned = chunk_str
 
-        data.append({'Text': chunk_text_cleaned})
+        data.append({'Text': chunk_cleaned})
 
     df = pd.DataFrame(data)
     df.to_csv(output_file, index=False, encoding='utf-8')
@@ -313,7 +372,7 @@ def save_chunks_as_simple_csv(
     logger.info("=" * 60)
     logger.info(f"  ファイル: {output_file}")
     logger.info(f"  チャンク数: {len(df)}")
-    logger.info(f"  カラム: Text のみ")
+    logger.info("  カラム: Text のみ")
     logger.info("=" * 60)
 
     return output_file
@@ -354,24 +413,24 @@ def save_chunks_as_csv(
         - wikipedia_ja_5per_chunks_20260207_123456.csv （メタデータ付き）
         - wikipedia_ja_5per_chunks_20260207_123456_simple.csv （シンプル版）
     """
-    tokenizer = tiktoken.get_encoding("cl100k_base")
-
     data = []
-    for i, chunk_text in enumerate(chunks):
+    for i, chunk in enumerate(_as_chunk_dicts(chunks)):
+        chunk_str = chunk["text"]
         # ✅ 改行・空白を正規化（CSV出力をクリーンにする）
         if normalize_whitespace:
-            chunk_text_cleaned = _normalize_whitespace(chunk_text)
+            chunk_cleaned = _normalize_whitespace(chunk_str)
         else:
-            chunk_text_cleaned = chunk_text
+            chunk_cleaned = chunk_str
 
         # センテンス分割（正規化前のテキストで実施）
-        sentences = _split_sentences_simple(chunk_text)
+        sentences = _split_sentences_simple(chunk_str)
 
         data.append({
             'chunk_id'      : f"{dataset_type}_chunk_{i}",
-            'text'          : chunk_text_cleaned,  # ✅ 正規化されたテキスト
-            'tokens'        : len(tokenizer.encode(chunk_text_cleaned)),
+            'text'          : chunk_cleaned,  # ✅ 正規化されたテキスト
+            'tokens'        : _count_tokens(chunk_cleaned),
             'chunk_idx'     : i,
+            'doc_id'        : chunk["doc_id"],  # 元文書（CSV行）へのトレーサビリティ
             'dataset_type'  : dataset_type,
             'type'          : 'llm_chunk',
             'sentence_count': len(sentences),
@@ -494,21 +553,126 @@ def _split_sentences_simple(text: str) -> List[str]:
 
 
 # ================================================================
+# 文書単位チャンキング（コア実装）
+# ================================================================
+
+def _split_document_into_blocks(text: str, block_size: int) -> List[str]:
+    """文書を文境界を保ってブロックに分割する。
+
+    旧実装は全文書を結合した文字列を block_size 文字で機械的に切断しており、
+    文・文書の途中で分断されていた。本実装は _preprocess_text() で文ごとに
+    改行区切りへ整形した後、文単位でブロックへ詰める（文の途中では切らない）。
+    1文が block_size を超える場合のみ、その文単独で1ブロックとする。
+    """
+    preprocessed = _preprocess_text(text)
+    lines = [line for line in preprocessed.split('\n') if line.strip()]
+
+    blocks: List[str] = []
+    current: List[str] = []
+    current_len = 0
+    for line in lines:
+        if current and current_len + len(line) > block_size:
+            blocks.append('\n'.join(current))
+            current, current_len = [], 0
+        current.append(line)
+        current_len += len(line) + 1
+    if current:
+        blocks.append('\n'.join(current))
+    return blocks
+
+
+def _report_coverage(
+        total_input_chars: int,
+        final_chunks: List[Dict],
+        stats: Dict,
+        api_stats: Optional[Dict] = None,
+        coverage_threshold: float = 0.95
+) -> Dict:
+    """入力に対する出力のカバレッジを検証してレポートする。
+
+    各ステップのフォールバックでテキスト自体は保全されるが、LLMが本文を
+    省略するケースの検知のため正規化後の文字数比を必ず突合する。
+    """
+    output_chars = sum(len(_normalize_whitespace(c["text"])) for c in final_chunks)
+    ratio = output_chars / total_input_chars if total_input_chars else 1.0
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("📐 入力カバレッジ検証")
+    logger.info("=" * 60)
+    logger.info(f"  入力文字数（正規化後）: {total_input_chars:,}")
+    logger.info(f"  出力文字数（正規化後）: {output_chars:,}")
+    logger.info(f"  カバレッジ: {ratio:.1%}")
+    logger.info(
+        f"  フォールバック: Step1={stats.get('step1_fallbacks', 0)}, "
+        f"Step2={stats.get('step2_fallbacks', 0)}, Step3={stats.get('step3_fallbacks', 0)}"
+    )
+    if api_stats:
+        logger.info(
+            f"  API: 総リクエスト={api_stats.get('total_requests', 0)}, "
+            f"失敗={api_stats.get('failed_requests', 0)}, "
+            f"切断={api_stats.get('truncated_responses', 0)}"
+        )
+        usage = api_stats.get("usage") or {}
+        if any(usage.values()):
+            logger.info(
+                f"  トークン: 入力={usage.get('input_tokens', 0):,}, "
+                f"出力={usage.get('output_tokens', 0):,}, "
+                f"キャッシュ読取={usage.get('cached_input_tokens', 0):,}"
+            )
+    if ratio < coverage_threshold:
+        logger.warning(
+            f"⚠️ 入力カバレッジが {coverage_threshold:.0%} を下回っています（{ratio:.1%}）。"
+            f"LLMが本文を省略・要約した可能性があります。"
+        )
+    logger.info("=" * 60)
+
+    return {"input_chars": total_input_chars, "output_chars": output_chars, "ratio": ratio}
+
+
+# ================================================================
 # chunks_all_async関数
 # ================================================================
 
 async def chunks_all_async(
-        text: str,
+        text: Optional[str] = None,
         model: str = "gpt-5-mini",  # [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
         max_workers: int = 8,
         block_size: int = 1000,  # ✅ 2000→1000に変更（MAX_TOKENS対策）
         checkpoint_manager: Optional[CheckpointManager] = None,
         output_file: Optional[str] = None,
         dataset_type: str = "custom",
-        source_file: Optional[str] = None
+        source_file: Optional[str] = None,
+        documents: Optional[List[Dict]] = None,
+        continuity_mode: str = "rule",
+        max_chunk_tokens: int = MAX_CHUNK_TOKENS,
 ) -> List[str]:
-    """テキストを3段階で意味的にチャンク化"""
+    """テキストまたは文書リストを3段階で意味的にチャンク化する。
+
+    Args:
+        text: 入力テキスト（単一文書として扱う。documents と排他）
+        documents: 文書リスト [{'doc_id': ..., 'text': ...}, ...]
+            CSV入力では1行=1文書として渡すこと。チャンクが文書を
+            またいで結合されることはない（文書境界の保証）。
+        continuity_mode: Step3（連続性チェック）の動作モード
+            - "rule": ルールベース判定（LLM呼び出しなし・デフォルト）
+            - "llm" : LLMによるペア判定（旧動作。チャンク数-1回のLLM呼び出し）
+            - "off" : 結合を行わない
+        max_chunk_tokens: チャンクの最大トークン数。Step3の結合上限かつ
+            最終チャンクの強制分割上限。Embedding（text-embedding-3-large）の
+            入力上限未満であること
+        その他: モデル・並列数・ブロックサイズ・チェックポイント・出力先
+
+    Returns:
+        チャンクテキストのリスト（後方互換のため文字列リスト。
+        doc_id 等のメタデータは出力CSVに含まれる）
+    """
     import os
+
+    if documents is None:
+        if text is None:
+            raise ValueError("text または documents のいずれかを指定してください")
+        documents = [{"doc_id": 0, "text": text}]
 
     # [MIGRATION] GOOGLE_API_KEY → OPENAI_API_KEY
     api_key = os.getenv("OPENAI_API_KEY")
@@ -519,29 +683,51 @@ async def chunks_all_async(
         api_key=api_key,
         max_workers=max_workers,
         max_retries=3,
-        max_output_tokens=16384  # ✅ 4096→8192に増加（MAX_TOKENS対策）
+        max_output_tokens=16384  # 出力切断（finish_reason=length）対策のため大きめに設定
     )
 
     if checkpoint_manager is None:
         checkpoint_manager = CheckpointManager()
 
+    total_chars = sum(len(d["text"]) for d in documents)
+    total_input_chars = sum(len(_normalize_whitespace(d["text"])) for d in documents)
+    stats: Dict[str, int] = {"step1_fallbacks": 0, "step2_fallbacks": 0, "step3_fallbacks": 0}
+
     logger.info("=" * 60)
-    logger.info("チャンク化処理開始 (3段階)")
+    logger.info("チャンク化処理開始 (3段階・文書単位)")
     logger.info("=" * 60)
-    logger.info(f"入力テキスト: {format_size(len(text))}")
+    logger.info(f"入力文書数: {len(documents)}")
+    logger.info(f"入力テキスト: {format_size(total_chars)}")
     logger.info(f"モデル: {model}")
     logger.info(f"並列ワーカー数: {max_workers}")
 
-    step1_chunks = await _step1_hierarchical_split(
-        text, client, model, block_size, checkpoint_manager
+    paragraphs = await _step1_hierarchical_split(
+        documents, client, model, block_size, checkpoint_manager, stats
     )
 
     step2_chunks = await _step2_semantic_chunking(
-        step1_chunks, client, model, checkpoint_manager
+        paragraphs, client, model, checkpoint_manager, stats
     )
 
+    if max_chunk_tokens >= EMBEDDING_INPUT_TOKEN_LIMIT:
+        logger.warning(
+            f"⚠️ max_chunk_tokens={max_chunk_tokens} は Embedding 入力上限"
+            f"（{EMBEDDING_INPUT_TOKEN_LIMIT}）以上です。Embedding 時に超過分が"
+            f"無言で切り捨てられるため、上限未満の値を推奨します。"
+        )
+
     final_chunks = await _step3_continuity_check(
-        step2_chunks, client, model, checkpoint_manager
+        step2_chunks, client, model, checkpoint_manager, stats,
+        continuity_mode=continuity_mode,
+        max_chunk_tokens=max_chunk_tokens,
+    )
+
+    # 上限強制分割: Step2出力・フォールバック由来の巨大チャンクも上限内に収める
+    final_chunks = _enforce_max_chunk_tokens(final_chunks, max_chunk_tokens)
+
+    # 入力カバレッジ検証（無言のデータ欠落の検知）
+    coverage = _report_coverage(
+        total_input_chars, final_chunks, stats, api_stats=client.get_stats()
     )
 
     if output_file:
@@ -556,123 +742,173 @@ async def chunks_all_async(
                 normalize_whitespace=True,  # ✅ 改行正規化を有効化
                 save_simple_csv=True  # ✅ シンプルCSVも保存
             )
+            _write_manifest(
+                output_file=output_file,
+                documents=documents,
+                final_chunks=final_chunks,
+                coverage=coverage,
+                stats=stats,
+                model=model,
+                block_size=block_size,
+                source_file=source_file,
+                continuity_mode=continuity_mode,
+                max_chunk_tokens=max_chunk_tokens,
+            )
         else:
             save_chunks_as_text(
-                chunks=final_chunks,
+                chunks=[c["text"] for c in final_chunks],
                 output_file=output_file
             )
 
-    return final_chunks
+    return [c["text"] for c in final_chunks]
+
+
+def _write_manifest(
+        output_file: str,
+        documents: List[Dict],
+        final_chunks: List[Dict],
+        coverage: Dict,
+        stats: Dict,
+        model: str,
+        block_size: int,
+        source_file: Optional[str],
+        continuity_mode: str = "rule",
+        max_chunk_tokens: int = MAX_CHUNK_TOKENS
+) -> str:
+    """チャンクCSVと対になる manifest を出力する（後続ステージとの契約明示）。"""
+    import json
+    from datetime import datetime
+
+    manifest = {
+        "schema_version": "chunks:v2",
+        "created_at": datetime.now().isoformat(),
+        "source_file": source_file or "",
+        "output_file": str(output_file),
+        "params": {
+            "model": model,
+            "block_size": block_size,
+            "continuity_mode": continuity_mode,
+            "max_chunk_tokens": max_chunk_tokens,
+            "embedding_input_token_limit": EMBEDDING_INPUT_TOKEN_LIMIT,
+        },
+        "counts": {
+            "documents": len(documents),
+            "chunks": len(final_chunks),
+        },
+        "coverage": coverage,
+        "fallbacks": dict(stats),
+        "columns": ["chunk_id", "text", "tokens", "chunk_idx", "doc_id",
+                    "dataset_type", "type", "sentence_count", "source_file"],
+        "text_column": "text",
+    }
+
+    manifest_path = str(Path(output_file).with_suffix("")) + ".manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    logger.info(f"📜 manifest 出力: {manifest_path}")
+    return manifest_path
 
 
 async def _step1_hierarchical_split(
-        text: str,
+        documents: List[Dict],
         client: AsyncAPIClient,
         model: str,
         block_size: int,
-        checkpoint_manager: CheckpointManager
-) -> List[str]:
+        checkpoint_manager: CheckpointManager,
+        stats: Dict
+) -> List[Dict]:
     """
     Step 1: 階層構造化（段落分割）
 
-    テキストを段落単位に分割する。
+    文書ごとに文境界を保ってブロック分割し、各ブロックをLLMで段落に分割する。
+    文書をまたいだブロックは作られない。
 
-    【step1_2_3.pyからの改善点】
-    - 前処理: _preprocess_text() で句読点区切りに変換
-    - 後処理: _postprocess_paragraph() で文ごとに改行区切り
-
-    【分割基準】
-    - 章・節の切り替わり → 新しい段落
-    - トピック転換 → 新しい段落
-    - 文脈の連続性 → 同じ段落
-
-    Args:
-        text: 分割対象テキスト
-        client: 非同期APIクライアント
-        model: 使用するLLMモデル名
-        block_size: 入力テキストのブロックサイズ（文字数）
-        checkpoint_manager: チェックポイント管理
+    【カバレッジ保証】
+    LLM呼び出しの失敗・パース失敗時は、そのブロックをそのまま1段落として
+    引き継ぐ（旧実装はブロックを警告ログのみで破棄していた）。
 
     Returns:
-        段落単位に分割されたテキストリスト
+        段落のリスト [{'doc_id': ..., 'text': ...}, ...]
     """
     if checkpoint_manager.exists("step1"):
         logger.info("Step1: チェックポイントから再開")
         return checkpoint_manager.load("step1")
 
-    logger.info("\n[Step 1/3] 階層構造化（段落分割）")
-    logger.info(f"  入力: {format_size(len(text))}")
+    logger.info("\n[Step 1/3] 階層構造化（段落分割・文書単位）")
 
-    # 【改善】前処理: 長い1行を句読点で分割
-    text = _preprocess_text(text)
+    # 文書ごとに文境界でブロック分割
+    block_entries: List[Dict] = []
+    for doc in documents:
+        for block in _split_document_into_blocks(doc["text"], block_size):
+            block_entries.append({"doc_id": doc["doc_id"], "block": block})
 
-    blocks = [text[i:i + block_size] for i in range(0, len(text), block_size)]
-    logger.info(f"  ブロック分割: {len(blocks)} ブロック（{block_size}文字ごと）")
+    logger.info(f"  入力: {len(documents)} 文書 → {len(block_entries)} ブロック（文境界で分割）")
 
     tasks = []
-    for i, block in enumerate(blocks):
-        prompt = f"{PARAGRAPH_SEPARATION_PROMPT}\n\n【入力テキスト】\n{block}"
+    for i, entry in enumerate(block_entries):
+        # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
+        # （Anthropic の system + cache_control は使用しない）
+        prompt = f"{PARAGRAPH_SEPARATION_PROMPT}\n\n【入力テキスト】\n{entry['block']}"
         task = client.generate_content(
             model=model,
             contents=prompt,
             response_schema=StructuralResult,
-            task_id=f"step1_block_{i}"
+            task_id=f"step1_block_{i}",
         )
         tasks.append(task)
 
-    # results = await asyncio.gather(*tasks)
     results = await async_tqdm.gather(
         *tasks,
-        desc="Step1: 段落分割",  # 各ステップで説明を変更
+        desc="Step1: 段落分割",
         total=len(tasks)
     )
 
-    paragraphs = []
-    for result_json in results:
+    paragraphs: List[Dict] = []
+    for entry, result_json in zip(block_entries, results):
+        parsed = None
         if result_json:
             try:
-                result = StructuralResult.model_validate_json(result_json)
-                for para in result.paragraphs:
-                    # 【改善】後処理: 各段落を句読点で文ごとに改行区切り
-                    para_text = _postprocess_paragraph(para.full_text)
-                    paragraphs.append(para_text)
+                parsed = StructuralResult.model_validate_json(result_json)
             except Exception as e:
-                logger.warning(f"パース失敗: {e}")
+                logger.warning(f"Step1 パース失敗（フォールバックで保全）: {e}")
 
-    logger.info(f"  出力: {len(paragraphs)} 段落")
+        if parsed and parsed.paragraphs:
+            for para in parsed.paragraphs:
+                para_text = _postprocess_paragraph(para.full_text)
+                if para_text.strip():
+                    paragraphs.append({"doc_id": entry["doc_id"], "text": para_text})
+        else:
+            # 【カバレッジ保証】失敗ブロックは捨てずにそのまま1段落として引き継ぐ
+            stats["step1_fallbacks"] += 1
+            paragraphs.append({
+                "doc_id": entry["doc_id"],
+                "text"  : _postprocess_paragraph(entry["block"])
+            })
+
+    logger.info(f"  出力: {len(paragraphs)} 段落（フォールバック: {stats['step1_fallbacks']}）")
     checkpoint_manager.save("step1", paragraphs)
 
     return paragraphs
 
 
 async def _step2_semantic_chunking(
-        paragraphs: List[str],
+        paragraphs: List[Dict],
         client: AsyncAPIClient,
         model: str,
-        checkpoint_manager: CheckpointManager
-) -> List[str]:
+        checkpoint_manager: CheckpointManager,
+        stats: Dict
+) -> List[Dict]:
     """
     Step 2: 意味的チャンキング
 
     Step1の段落を意味的なチャンクに分割する。
 
-    【step1_2_3.pyからの改善点】
-    - Step1で生成された段落は既に後処理済み（句読点改行区切り）
-    - LLMが「文のまとまり」を理解しやすくなっている
-
-    【分割基準】
-    - 意味の単位（例: 問題提起と解決策を1つのチャンクに）
-    - Q/A生成に最適なサイズ（トークン数を考慮）
-    - 独立して理解可能な情報の塊
-
-    Args:
-        paragraphs: 段落のリスト（Step1の出力）
-        client: 非同期APIクライアント
-        model: 使用するLLMモデル名
-        checkpoint_manager: チェックポイント管理
+    【カバレッジ保証】
+    LLM呼び出しの失敗・パース失敗時は、その段落をそのまま1チャンクとして
+    引き継ぐ（旧実装は段落を警告ログのみで破棄していた）。
 
     Returns:
-        意味的に分割されたチャンクリスト
+        チャンクのリスト [{'doc_id': ..., 'text': ...}, ...]
     """
     if checkpoint_manager.exists("step2"):
         logger.info("Step2: チェックポイントから再開")
@@ -683,120 +919,241 @@ async def _step2_semantic_chunking(
 
     tasks = []
     for i, para in enumerate(paragraphs):
-        prompt = f"{SEMANTIC_CHUNKING_PROMPT}\n\n【入力テキスト】\n{para}"
+        # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
+        prompt = f"{SEMANTIC_CHUNKING_PROMPT}\n\n【入力テキスト】\n{para['text']}"
         task = client.generate_content(
             model=model,
             contents=prompt,
             response_schema=StructuralResult,
-            task_id=f"step2_para_{i}"
+            task_id=f"step2_para_{i}",
         )
         tasks.append(task)
 
-    # results = await asyncio.gather(*tasks)
     results = await async_tqdm.gather(
         *tasks,
-        desc="Step2: 意味的分割",  # 各ステップで説明を変更
+        desc="Step2: 意味的分割",
         total=len(tasks)
     )
 
-    chunks = []
-    for result_json in results:
+    chunks: List[Dict] = []
+    for para, result_json in zip(paragraphs, results):
+        parsed = None
         if result_json:
             try:
-                result = StructuralResult.model_validate_json(result_json)
-                for para in result.paragraphs:
-                    chunks.append(para.full_text)
+                parsed = StructuralResult.model_validate_json(result_json)
             except Exception as e:
-                logger.warning(f"パース失敗: {e}")
+                logger.warning(f"Step2 パース失敗（フォールバックで保全）: {e}")
 
-    logger.info(f"  出力: {len(chunks)} チャンク")
+        if parsed and parsed.paragraphs:
+            for p in parsed.paragraphs:
+                if p.full_text.strip():
+                    chunks.append({"doc_id": para["doc_id"], "text": p.full_text})
+        else:
+            # 【カバレッジ保証】失敗段落は捨てずにそのまま1チャンクとして引き継ぐ
+            stats["step2_fallbacks"] += 1
+            chunks.append({"doc_id": para["doc_id"], "text": para["text"]})
+
+    logger.info(f"  出力: {len(chunks)} チャンク（フォールバック: {stats['step2_fallbacks']}）")
     checkpoint_manager.save("step2", chunks)
 
     return chunks
 
 
+# ルールベース連続性判定: 次チャンクがこれらで始まる場合は前チャンクへの
+# 依存（指示語・接続語）とみなして結合候補とする
+_CONTINUITY_MARKERS = (
+    "この", "その", "それ", "これ", "また", "しかし", "さらに", "一方",
+    "なお", "ただし", "そして", "だが", "したがって", "つまり",
+    "このため", "そのため", "他にも", "加えて", "同様に",
+)
+
+# 次チャンクがこのトークン数未満なら単独チャンクとして短すぎるため結合候補とする
+_MIN_STANDALONE_TOKENS = 50
+
+
+def _split_oversized_text(text: str, max_tokens: int) -> List[str]:
+    """max_tokens を超えるテキストを文境界で複数ピースに分割する。
+
+    1文単独で max_tokens を超える場合はその文をそのまま1ピースとする
+    （文の途中では切らない。Embedding 側の切り捨ては警告で可視化）。
+    """
+    sentences = _split_sentences_simple(text)
+    if not sentences:
+        return [text]
+
+    pieces: List[str] = []
+    current: List[str] = []
+    current_tokens = 0
+    for sent in sentences:
+        sent_tokens = _count_tokens(sent)
+        if current and current_tokens + sent_tokens > max_tokens:
+            pieces.append(" ".join(current))
+            current, current_tokens = [], 0
+        current.append(sent)
+        current_tokens += sent_tokens
+    if current:
+        pieces.append(" ".join(current))
+    return pieces
+
+
+def _enforce_max_chunk_tokens(chunks: List[Dict], max_tokens: int) -> List[Dict]:
+    """全チャンクに最大トークン数を強制する（超過分は文境界で分割）。
+
+    Step3 は「結合時」のみ上限を見ており、Step2 が出力する単一チャンクや
+    フォールバックで保全されたブロックには上限がなかった。Embedding
+    （text-embedding-3-large）の無言切り捨てを防ぐため、最終チャンク全件に
+    対して上限を強制する。doc_id は分割後も引き継ぐ。
+    """
+    enforced: List[Dict] = []
+    split_count = 0
+    for chunk in chunks:
+        tokens = _count_tokens(chunk["text"])
+        if tokens <= max_tokens:
+            enforced.append(chunk)
+            continue
+        pieces = _split_oversized_text(chunk["text"], max_tokens)
+        if len(pieces) == 1:
+            logger.warning(
+                f"  1文で {tokens} トークン（上限 {max_tokens} 超）のチャンクは分割不可のため保持。"
+                f"Embedding 入力上限（{EMBEDDING_INPUT_TOKEN_LIMIT}）超過時は切り捨てに注意"
+            )
+            enforced.append(chunk)
+            continue
+        split_count += 1
+        for piece in pieces:
+            enforced.append({"doc_id": chunk["doc_id"], "text": piece})
+
+    if split_count:
+        logger.info(
+            f"  📏 上限強制分割: {split_count} チャンクが {max_tokens} トークン超のため"
+            f"文境界で分割（{len(chunks)} → {len(enforced)} チャンク）"
+        )
+    return enforced
+
+
+def _rule_based_continuity(prev_text: str, next_text: str) -> bool:
+    """ルールベースの連続性判定（LLM呼び出しなし）。
+
+    以下のいずれかなら「連続」と判定する:
+    - 次チャンクが指示語・接続語で始まる（前チャンクへの文脈依存）
+    - 次チャンクが単独チャンクとして短すぎる（過分割の修正）
+
+    トークン上限チェックは呼び出し側（マージ処理）で共通に行う。
+    """
+    next_head = next_text.lstrip()
+    if any(next_head.startswith(m) for m in _CONTINUITY_MARKERS):
+        return True
+    if _count_tokens(next_text) < _MIN_STANDALONE_TOKENS:
+        return True
+    return False
+
+
 async def _step3_continuity_check(
-        chunks: List[str],
+        chunks: List[Dict],
         client: AsyncAPIClient,
         model: str,
-        checkpoint_manager: CheckpointManager
-) -> List[str]:
+        checkpoint_manager: CheckpointManager,
+        stats: Dict,
+        continuity_mode: str = "rule",
+        max_chunk_tokens: int = MAX_CHUNK_TOKENS
+) -> List[Dict]:
     """
-    Step 3: 文脈連続性チェック
+    Step 3: 文脈連続性チェック（同一文書内のみ）
 
-    隣接するチャンク間の文脈連続性を判定し、
-    連続している場合は結合、非連続の場合は分離する。
+    隣接するチャンク間の文脈連続性を判定し、連続している場合は結合する。
 
-    【Step2との違い】
-    - Step2: 分割（1段落→複数チャンク、チャンク数が増加）
-    - Step3: 結合（複数チャンク→少数チャンク、チャンク数が減少）
-    - Step3はStep2の「過分割」を修正する役割
+    - 文書（doc_id）をまたぐ結合は行わない（文書境界の保証）
+    - 結合後のチャンクが max_chunk_tokens を超える場合は結合しない
+      （旧実装は無条件結合でチャンクが際限なく肥大化していた）
+    - 判定失敗時は結合しない（テキストは保全される）
 
-    【検証パターン】
-    - 前方依存: 「この」「それ」等の指示語で前を参照 → 結合（True）
-    - 後方依存: 専門用語が未定義のまま使用 → 結合（True）
-    - 話題転換: 完全に別のトピック → 分離（False）
-    - 独立判定: 話題は同じでも単独で理解可能 → 分離（False）
-    - 章構造: 章が変わった場合 → 分離（False）
-
-    Args:
-        chunks: チャンクのリスト（Step2の出力）
-        client: 非同期APIクライアント
-        model: 使用するLLMモデル名
-        checkpoint_manager: チェックポイント管理
-
-    Returns:
-        連続性に基づいて結合/分離された最終チャンクリスト
+    continuity_mode:
+        - "rule": 指示語・接続語と短チャンク判定によるルールベース（LLM 0回）。
+          旧実装のチャンク数-1回のLLM呼び出しを置き換えるデフォルト
+        - "llm" : LLMによるペア判定（旧動作）
+        - "off" : 結合しない
     """
     if checkpoint_manager.exists("step3"):
         logger.info("Step3: チェックポイントから再開")
         return checkpoint_manager.load("step3")
 
-    logger.info("\n[Step 3/3] 文脈連続性チェック")
+    logger.info(f"\n[Step 3/3] 文脈連続性チェック（mode={continuity_mode}, 同一文書内のみ）")
     logger.info(f"  入力: {len(chunks)} チャンク")
 
-    if len(chunks) <= 1:
+    if continuity_mode == "off" or len(chunks) <= 1:
         checkpoint_manager.save("step3", chunks)
         return chunks
 
-    tasks = []
-    for i in range(len(chunks) - 1):
-        prompt = f"{CONTINUITY_CHECK_PROMPT}\n\n【前のテキスト】\n{chunks[i]}\n\n【次のテキスト】\n{chunks[i + 1]}"
-        task = client.generate_content(
-            model=model,
-            contents=prompt,
-            response_schema=ContinuityResult,
-            task_id=f"step3_pair_{i}"
-        )
-        tasks.append(task)
-
-    # results = await asyncio.gather(*tasks)
-    results = await async_tqdm.gather(
-        *tasks,
-        desc="Step3: 連続性チェック",  # ✅ 修正: Step2 → Step3
-        total=len(tasks)
+    # 同一文書内の隣接ペアのみ判定対象とする
+    pair_indices = [
+        i for i in range(len(chunks) - 1)
+        if chunks[i]["doc_id"] == chunks[i + 1]["doc_id"]
+    ]
+    logger.info(
+        f"  判定ペア: {len(pair_indices)} / {len(chunks) - 1} "
+        f"（文書をまたぐペアは判定せず分離）"
     )
 
+    results_map: Dict[int, Optional[str]] = {}
+    if continuity_mode == "llm":
+        # LLM判定（旧動作）: 同一文書内ペアごとに1回のLLM呼び出し
+        tasks = []
+        for i in pair_indices:
+            # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
+            prompt = (
+                f"{CONTINUITY_CHECK_PROMPT}\n\n"
+                f"【前のテキスト】\n{chunks[i]['text']}\n\n"
+                f"【次のテキスト】\n{chunks[i + 1]['text']}"
+            )
+            task = client.generate_content(
+                model=model,
+                contents=prompt,
+                response_schema=ContinuityResult,
+                task_id=f"step3_pair_{i}",
+            )
+            tasks.append(task)
+
+        results = await async_tqdm.gather(
+            *tasks,
+            desc="Step3: 連続性チェック",
+            total=len(tasks)
+        )
+        results_map = dict(zip(pair_indices, results))
+
+    pair_index_set = set(pair_indices)
+
     # マージ処理
-    logger.debug("マージ処理...")
-    final_chunks = [chunks[0]]
-    for i, result_json in enumerate(results):
-        if result_json:
-            try:
-                result = ContinuityResult.model_validate_json(result_json)
-                if result.is_connected:
-                    # 結合: 空行（\n\n）で連結し、段落構造を保持
-                    final_chunks[-1] += "\n\n" + chunks[i + 1]
-                    logger.debug(f"  チャンク{i + 1} + チャンク{i + 2} → 結合")
+    final_chunks: List[Dict] = [dict(chunks[0])]
+    for i in range(len(chunks) - 1):
+        nxt = chunks[i + 1]
+        is_connected = False
+
+        if i in pair_index_set:
+            if continuity_mode == "rule":
+                is_connected = _rule_based_continuity(chunks[i]["text"], nxt["text"])
+            else:  # "llm"
+                result_json = results_map.get(i)
+                if result_json:
+                    try:
+                        result = ContinuityResult.model_validate_json(result_json)
+                        is_connected = result.is_connected
+                    except Exception as e:
+                        logger.warning(f"Step3 パース失敗（分離扱い）: {e}")
+                        stats["step3_fallbacks"] += 1
                 else:
-                    # 分離: 新しいチャンクとして追加
-                    final_chunks.append(chunks[i + 1])
-                    logger.debug(f"  チャンク{i + 2} → 新規追加")
-            except Exception as e:
-                logger.warning(f"パース失敗: {e}")
-                final_chunks.append(chunks[i + 1])
-        else:
-            final_chunks.append(chunks[i + 1])
+                    stats["step3_fallbacks"] += 1
+
+        if is_connected:
+            # トークン上限チェック: 超える場合は結合しない
+            merged_text = final_chunks[-1]["text"] + "\n\n" + nxt["text"]
+            if _count_tokens(merged_text) <= max_chunk_tokens:
+                final_chunks[-1]["text"] = merged_text
+                continue
+            logger.debug(
+                f"  チャンク{i + 1}+{i + 2}: 連続判定だが結合後 {max_chunk_tokens} トークン超のため分離"
+            )
+
+        final_chunks.append(dict(nxt))
 
     logger.info(f"  出力: {len(final_chunks)} チャンク（マージ後）")
     checkpoint_manager.save("step3", final_chunks)
@@ -863,6 +1220,24 @@ async def main():
         help="ブロックサイズ（文字数）。大きすぎるとMAX_TOKENSエラーが発生"
     )
     parser.add_argument(
+        "--max-chunk-tokens",
+        type=int,
+        default=MAX_CHUNK_TOKENS,
+        help=f"チャンクの最大トークン数（デフォルト: {MAX_CHUNK_TOKENS}）。\n"
+             f"Step3の結合上限かつ最終チャンクの強制分割上限。\n"
+             f"Embedding(text-embedding-3-large)の入力上限 {EMBEDDING_INPUT_TOKEN_LIMIT} 未満を推奨"
+    )
+    parser.add_argument(
+        "--continuity-mode",
+        type=str,
+        choices=["rule", "llm", "off"],
+        default="rule",
+        help="Step3（連続性チェック）のモード（デフォルト: rule）\n"
+             "  rule: ルールベース判定（LLM呼び出しなし・高速）\n"
+             "  llm : LLMによるペア判定（旧動作・チャンク数-1回のLLM呼び出し）\n"
+             "  off : 結合しない"
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="詳細ログ出力"
@@ -925,26 +1300,24 @@ async def main():
 
     file_extension = input_path.suffix.lower()
 
-    # テキスト読み込み
-    text = ""  # ✅ 初期化（警告回避）
-
+    # テキスト読み込み（CSVは1行=1文書として文書境界を保持）
     if file_extension == '.csv':
-        text = load_text_from_csv(
-            csv_path=args.input_file,  # ✅ 変更
+        documents = load_documents_from_csv(
+            csv_path=args.input_file,
             text_column=args.text_column,
             max_rows=args.max_rows,
-            combine_rows=args.combine_rows
         )
     else:
-        with open(args.input_file, 'r', encoding='utf-8') as f:  # ✅ 変更
-            text = f.read()
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            documents = [{"doc_id": 0, "text": f.read()}]
 
     logger.info("")
     logger.info("=" * 60)
     logger.info("チャンキング処理開始")
     logger.info("=" * 60)
     logger.info(f"📁 入力ファイル: {args.input_file}")
-    logger.info(f"📊 テキストサイズ: {format_size(len(text))}")
+    logger.info(f"📄 文書数: {len(documents)}")
+    logger.info(f"📊 テキストサイズ: {format_size(sum(len(d['text']) for d in documents))}")
     logger.info(f"🤖 モデル: {args.model}")
     logger.info(f"👥 並列ワーカー数: {args.workers}")
     logger.info("=" * 60)
@@ -970,10 +1343,12 @@ async def main():
     checkpoint_manager = CheckpointManager(job_id=args.resume) if args.resume else CheckpointManager()
 
     final_chunks = await chunks_all_async(
-        text=text,
+        documents=documents,
         model=args.model,
         max_workers=args.workers,
         block_size=args.block_size,
+        continuity_mode=args.continuity_mode,
+        max_chunk_tokens=args.max_chunk_tokens,
         checkpoint_manager=checkpoint_manager,
         output_file=output_file,  # ✅ 自動生成されたファイル名
         dataset_type=dataset_type,

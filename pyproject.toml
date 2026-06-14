@@ -192,3 +192,15 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+# isort の first-party 判定を明示し、環境差（インストール有無）による I001 の
+# ブレを防ぐ。CI（プロジェクト未インストール）とローカルで分類を一致させる。
+[tool.ruff.lint.isort]
+known-first-party = [
+    "agent_cache", "agent_main", "agent_parallel_search", "agent_rag", "agent_tools",
+    "celery_config", "celery_tasks", "chunking", "config", "grace", "helper",
+    "helper_api", "helper_embedding", "helper_llm", "helper_rag", "helper_rag_qa",
+    "helper_rag_ui", "helper_text", "main", "models", "qa_generation", "qa_qdrant",
+    "qdrant_client_wrapper", "qdrant_delete_collection", "regex_mecab", "run_benchmark",
+    "services", "tests", "ui", "down_load_non_qa_rag_data_from_huggingface",
+]

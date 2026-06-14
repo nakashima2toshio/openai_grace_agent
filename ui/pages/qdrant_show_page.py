@@ -12,9 +12,9 @@ Qdrantコレクションの閲覧・管理（削除・統合）機能
 - ヘルスチェック
 """
 
+import logging
 import time
 from datetime import datetime
-import logging
 
 import pandas as pd
 import streamlit as st
@@ -22,12 +22,11 @@ from qdrant_client import QdrantClient
 
 # サービスモジュールからインポート
 from services.qdrant_service import (
-    QdrantHealthChecker,
-    QdrantDataFetcher,
     QDRANT_CONFIG,
-    merge_collections,
-    get_collection_stats,
+    QdrantDataFetcher,
+    QdrantHealthChecker,
     get_all_collections,  # 追加
+    merge_collections,
 )
 
 logger = logging.getLogger(__name__)

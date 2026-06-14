@@ -36,8 +36,8 @@ register_csv_to_qdrant.py と register_qdrant.py を統合した最終版
       --max-docs 10
 """
 
-import sys
 import os
+import sys
 
 # プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,17 +45,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import logging
 import re
-import pandas as pd
 from typing import List, Optional
+
+import pandas as pd
+
+from qdrant_client_wrapper import create_qdrant_client
 
 # プロジェクト内モジュール
 from services.qdrant_service import (
+    build_points_for_qdrant,
     create_or_recreate_collection_for_qdrant,
     embed_texts_for_qdrant,
     upsert_points_to_qdrant,
-    build_points_for_qdrant
 )
-from qdrant_client_wrapper import create_qdrant_client
 
 # ログ設定
 logging.basicConfig(
@@ -151,7 +153,8 @@ def register_to_qdrant(
         provider: str = "gemini",
         normalize_filename: bool = True,
         create_ui_csv: bool = True,
-        ui_output_dir: str = "qa_output"
+        ui_output_dir: str = "qa_output",
+        embed_workers: int = 2
 ) -> bool:
     """
     CSVファイルをQdrantコレクションに登録するメイン処理。
@@ -166,6 +169,8 @@ def register_to_qdrant(
         max_docs: 登録する最大件数（None=全件）
         provider: Embeddingプロバイダー
         normalize_filename: ファイル名正規化を行うか
+        embed_workers: Embedding先読みの並列スレッド数（デフォルト: 2）。
+            1 でも次バッチの先読みは行われる（パイプライン化）
         create_ui_csv: UI用CSVを生成するか
         ui_output_dir: UI用CSVの出力先
 
@@ -207,9 +212,30 @@ def register_to_qdrant(
         return False
 
     # ================================================================
+    # 3.5 重複テキストの除去
+    # ================================================================
+    # 同一テキストを二重にEmbeddingするコストを避け、内容ベースの
+    # ポイントID（build_points_for_qdrant）で重複が collapse することによる
+    # 「処理件数 != Qdrant件数」の突合ズレも防ぐ。df と texts を同期して絞る。
+    before = len(texts)
+    seen = set()
+    keep_positions = []
+    for idx, t in enumerate(texts):
+        norm = " ".join(str(t).split())
+        if norm in seen:
+            continue
+        seen.add(norm)
+        keep_positions.append(idx)
+    removed = before - len(keep_positions)
+    if removed:
+        df = df.iloc[keep_positions].reset_index(drop=True)
+        texts = [texts[i] for i in keep_positions]
+        logger.info(f"🧹 重複テキスト {removed} 件を除外（{before} → {len(texts)}）")
+
+    # ================================================================
     # 4. Qdrantクライアント初期化 & コレクション準備
     # ================================================================
-    logger.info(f"🔌 Qdrant接続中...")
+    logger.info("🔌 Qdrant接続中...")
     try:
         client = create_qdrant_client()
 
@@ -247,24 +273,44 @@ def register_to_qdrant(
         normalized_filename = source_filename
 
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🚀 登録処理開始")
+    logger.info("🚀 登録処理開始")
     logger.info(f"{'=' * 60}")
     logger.info(f"   全件数       : {len(df)} 件")
     logger.info(f"   バッチサイズ : {batch_size}")
     logger.info(f"   プロバイダー : {provider}")
+    logger.info(f"   Embed並列数  : {embed_workers}（先読みパイプライン）")
     logger.info(f"{'=' * 60}\n")
 
-    try:
-        for i in range(0, len(df), batch_size):
-            end_idx = min(i + batch_size, len(df))
-            batch_df = df.iloc[i:end_idx]
-            batch_texts = texts[i:end_idx]
+    # Embedding（外部API・I/Oバウンド）と Qdrant upsert を直列に繰り返す旧実装は
+    # 待ち時間が単純加算されていた。Embedding をスレッドで有界に先読みし、
+    # upsert と重ねるパイプライン構成にする。embed_texts_for_qdrant は呼び出し
+    # ごとに専用クライアントを生成するためスレッド間の共有状態はない。
+    from concurrent.futures import ThreadPoolExecutor
 
-            # A. ベクトル化
-            vectors = embed_texts_for_qdrant(batch_texts)
+    batch_ranges = [
+        (i, min(i + batch_size, len(df))) for i in range(0, len(df), batch_size)
+    ]
+    # 先読みは embed_workers+1 バッチまでに制限（ベクトルのメモリ滞留を防ぐ）
+    lookahead = max(1, embed_workers) + 1
+
+    executor = ThreadPoolExecutor(max_workers=max(1, embed_workers))
+    futures: dict = {}
+    next_submit = 0
+    try:
+        for k, (start_idx, end_idx) in enumerate(batch_ranges):
+            # スライディングウィンドウで先のバッチの Embedding を投入
+            while next_submit < len(batch_ranges) and next_submit <= k + lookahead - 1:
+                s, e = batch_ranges[next_submit]
+                futures[next_submit] = executor.submit(embed_texts_for_qdrant, texts[s:e])
+                next_submit += 1
+
+            batch_df = df.iloc[start_idx:end_idx]
+
+            # A. ベクトル化（先読み済み future から取得）
+            vectors = futures.pop(k).result()
 
             if not vectors:
-                logger.warning(f"   ⚠️  Batch {i}-{end_idx}: ベクトル生成失敗（スキップ）")
+                logger.warning(f"   ⚠️  Batch {start_idx}-{end_idx}: ベクトル生成失敗（スキップ）")
                 continue
 
             # B. ポイント構築
@@ -273,7 +319,7 @@ def register_to_qdrant(
                 vectors,
                 domain=domain_val,
                 source_file=normalized_filename,
-                start_index=i
+                start_index=start_idx
             )
 
             # C. メタデータの追加
@@ -303,6 +349,11 @@ def register_to_qdrant(
         import traceback
         traceback.print_exc()
         return False
+    finally:
+        # 未消費の先読みタスクをキャンセルしてスレッドを解放
+        for f in futures.values():
+            f.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # ================================================================
     # 6. UI用CSV生成（オプション）
@@ -320,7 +371,7 @@ def register_to_qdrant(
                 df_ui.to_csv(output_path, index=False, encoding='utf-8')
                 logger.info(f"   ✅ 作成完了 ({len(df_ui):,} 行)")
             else:
-                logger.warning(f"   ⚠️  'question', 'answer' カラムが見つからないためスキップ")
+                logger.warning("   ⚠️  'question', 'answer' カラムが見つからないためスキップ")
 
         except Exception as e:
             logger.warning(f"   ⚠️  UI用ファイル作成エラー: {e}")
@@ -329,7 +380,7 @@ def register_to_qdrant(
     # 7. 完了メッセージ
     # ================================================================
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🎉 登録完了！")
+    logger.info("🎉 登録完了！")
     logger.info(f"{'=' * 60}")
     logger.info(f"   コレクション : {collection_name}")
     logger.info(f"   登録件数     : {total_processed:,} 件")
@@ -403,6 +454,13 @@ def main():
         type=int,
         default=100,
         help="1回のEmbedding API呼び出し/登録処理で扱う件数（デフォルト: 100）"
+    )
+    qdrant_group.add_argument(
+        "--embed-workers",
+        type=int,
+        default=2,
+        help="Embedding先読みの並列スレッド数（デフォルト: 2）。"
+             "Embedding と Qdrant upsert をパイプライン化して登録を高速化する"
     )
 
     # ================================================================
@@ -502,7 +560,8 @@ def main():
         provider=args.provider,
         normalize_filename=args.normalize_filename,
         create_ui_csv=args.create_ui_csv,
-        ui_output_dir=args.ui_output_dir
+        ui_output_dir=args.ui_output_dir,
+        embed_workers=args.embed_workers
     )
 
     sys.exit(0 if success else 1)

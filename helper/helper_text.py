@@ -12,9 +12,10 @@ helper_text.py - テキスト処理ユーティリティ
 - helper_rag_qa.py
 """
 
-import re
 import logging
+import re
 from typing import List
+
 import tiktoken
 
 # ログ設定
@@ -155,12 +156,9 @@ def extract_sentences_japanese(text: str) -> List[str]:
 # トークン処理関数（services/token_serviceから統合）
 # ===================================================================
 # 後方互換性のため、services.token_serviceからimport
-from services.token_service import (
-    get_encoding,
+from services.token_service import (  # noqa: E402
     count_tokens,
-    estimate_tokens_simple,
 )  # noqa: E402
-
 
 # ===================================================================
 # チャンク分割関数

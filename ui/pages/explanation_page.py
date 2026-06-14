@@ -6,11 +6,12 @@ explanation_page.py - システム説明ページ
 README.md の内容を表示（Mermaid図対応）
 """
 
-import re
 import base64
 import mimetypes
-import streamlit as st
+import re
 from pathlib import Path
+
+import streamlit as st
 
 try:
     import streamlit_mermaid as stmd
@@ -53,7 +54,7 @@ def get_image_base64(image_path_str):
                 if not mime_type:
                     mime_type = "image/png"
                 return f"data:{mime_type};base64,{b64_data}"
-        except Exception as e:
+        except Exception:
             # print(f"Error reading image {found_path}: {e}")
             return None
     return None

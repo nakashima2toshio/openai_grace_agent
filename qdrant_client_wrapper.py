@@ -11,27 +11,27 @@ Qdrantベクトルデータベースとの操作を一元管理
 - a50_rag_search_local_qdrant.py
 """
 
-import os
+import hashlib
 import logging
+import os
 import socket
 import time
 import traceback
-from typing import Dict, List, Optional, Any, Tuple, Iterable
 from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-import tiktoken
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Gemini 3 Migration: Embedding抽象化レイヤー
 from helper.helper_embedding import (
-    create_embedding_client,
-    get_embedding_dimensions,
-    EmbeddingClient,
     DEFAULT_GEMINI_EMBEDDING_DIMS,
     DEFAULT_OPENAI_EMBEDDING_DIMS,
+    EmbeddingClient,
+    create_embedding_client,
+    get_embedding_dimensions,
 )
 from helper.helper_embedding_sparse import get_sparse_embedding_client
 
@@ -52,6 +52,18 @@ except ImportError:
 
 # ログ設定
 logger = logging.getLogger(__name__)
+
+def stable_point_id(key: str) -> int:
+    """文字列キーから決定的な Qdrant ポイントIDを生成する。
+
+    Python 組み込みの hash() は str に対してプロセスごとにランダム化される
+    （PYTHONHASHSEED）ため、再実行のたびに ID が変わり upsert の冪等性が
+    壊れる（--recreate なしの再登録で全件が重複する）。
+    MD5 ベースの決定的な 63bit 整数を使用する。
+    """
+    digest = hashlib.md5(key.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
 
 # ===================================================================
 # 定数

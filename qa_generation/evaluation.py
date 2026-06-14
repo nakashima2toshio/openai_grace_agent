@@ -8,9 +8,11 @@ qa_generation/evaluation.py - カバレッジ分析モジュール（v3.0 - conf
 - データセット別の決め打ち閾値を廃止し、統一デフォルト値を使用
 """
 import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import tiktoken
-from typing import List, Dict, Optional
+
 from qa_generation.semantic import SemanticCoverage
 
 logger = logging.getLogger(__name__)

@@ -2,10 +2,10 @@
 # MeCab複合名詞版と正規表現版を統合したロバストなキーワード抽出システム
 # [Usage:] List: keywords = extractor.extract(sample_text_jp, top_n=10)
 # [Usage:] List: chunks = chunk_text(sample_text_jp2)
-import re
 import logging
-from typing import List, Dict, Tuple
+import re
 from collections import Counter
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -430,7 +430,7 @@ def main():
     print("\n■ sample_text_jp（改行あり）のチャンク分割")
     print("-" * 60)
     chunks_jp = chunk_text(sample_text_jp)
-    print(f"分割方法: 改行")
+    print("分割方法: 改行")
     print(f"チャンク数: {len(chunks_jp)}")
     for i, chunk in enumerate(chunks_jp, 1):
         print(f"  [{i}] {chunk}")
@@ -444,7 +444,7 @@ def main():
     print("\n■ sample_text_jp2（改行なし）のチャンク分割")
     print("-" * 60)
     chunks_jp2 = chunk_text(sample_text_jp2)
-    print(f"分割方法: 句点（。）")
+    print("分割方法: 句点（。）")
     print(f"チャンク数: {len(chunks_jp2)}")
     for i, chunk in enumerate(chunks_jp2, 1):
         print(f"  [{i}] {chunk}")
@@ -465,7 +465,7 @@ def main():
 
         # デフォルト抽出
         keywords = extractor.extract(text, top_n=10)
-        print(f"\n【抽出結果（上位10件）】")
+        print("\n【抽出結果（上位10件）】")
         for i, kw in enumerate(keywords, 1):
             print(f"  {i:2d}. {kw}")
 

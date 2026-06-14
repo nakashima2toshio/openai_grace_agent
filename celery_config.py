@@ -9,14 +9,15 @@ celery_config.py - Celery設定ファイル（修正版 v2.5）
 - ワーカーがすべてのタスクを受信できるように修正
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
-from kombu import Exchange, Queue
+
 from celery import Celery
 from celery.signals import worker_process_init
 from dotenv import load_dotenv
-import logging
+from kombu import Exchange, Queue
 
 # ================================================================
 # ロギング設定（早期初期化）
@@ -91,7 +92,7 @@ def configure_worker_process(**kwargs):
 
     # インポートテスト
     try:
-        from qa_generation.generation import generate_qa_dataset
+        from qa_generation.generation import generate_qa_dataset  # noqa: F401
         logger.info("✅ [Worker] インポート成功: qa_generation.generation")
     except ImportError as e:
         logger.error(f"❌ [Worker] インポート失敗: {e}")
@@ -443,7 +444,7 @@ if __name__ == '__main__':
     # インポートテスト
     print("\n[インポートテスト]")
     try:
-        from qa_generation.generation import generate_qa_dataset
+        from qa_generation.generation import generate_qa_dataset  # noqa: F401
         print("✅ qa_generation.generation.generate_qa_dataset")
     except ImportError as e:
         print(f"❌ qa_generation.generation: {e}")

@@ -14,6 +14,7 @@ helper_embedding.py の EmbeddingClient を継承し、
 
 import logging
 from typing import List, Optional
+
 from helper.helper_embedding import EmbeddingClient  # [FIXED] helper_embedding → helper.helper_embedding
 
 logger = logging.getLogger(__name__)

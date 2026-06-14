@@ -12,11 +12,11 @@ agent_parallel_search.py - 並列検索エンジン
 - 進捗ログ
 """
 
-import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from typing import List, Dict, Any, Callable, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ class ParallelSearchEngine:
         Returns:
             検索結果リスト
         """
-        logger.info(f"🎯 優先順位付き検索開始")
+        logger.info("🎯 優先順位付き検索開始")
         logger.info(f"   優先: {priority_collections}")
         logger.info(f"   その他: {len(other_collections)}コレクション")
 
@@ -264,7 +264,7 @@ class ParallelSearchEngine:
                 )
                 return priority_results
 
-            logger.info(f"⚠️ 優先コレクションのスコアが低い → その他コレクションも検索")
+            logger.info("⚠️ 優先コレクションのスコアが低い → その他コレクションも検索")
         else:
             priority_results = []
 

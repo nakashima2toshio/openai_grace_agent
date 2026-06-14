@@ -16,24 +16,23 @@ agent_service.py のプロンプトと機能を統合したCLI版
 - 再試行メカニズム
 """
 
-import os
-import uuid
-
-# [MIGRATION] from google import genai / from google.genai import types を削除
-# AnthropicClient を helper_llm 経由で使用（agent_service.py と同パターン）
-from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
-
-from dotenv import load_dotenv
-import logging
 import datetime
-from typing import Dict, List, Any, Optional, Union, Tuple
+import logging
+import uuid
 from pathlib import Path
+from typing import Any, Dict, List
+
+from qdrant_client import QdrantClient
+
+from agent_tools import RAGToolError, list_rag_collections, search_rag_knowledge_base
 
 # Configuration and Tools
 # [MIGRATION] AgentConfig 削除（Anthropic版では不要）
 from config import PathConfig
-from agent_tools import search_rag_knowledge_base, list_rag_collections, RAGToolError
-from qdrant_client import QdrantClient
+
+# [MIGRATION] from google import genai / from google.genai import types を削除
+# AnthropicClient を helper_llm 経由で使用（agent_service.py と同パターン）
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 from services.qdrant_service import get_all_collections
 
 # キーワード抽出（オプション）

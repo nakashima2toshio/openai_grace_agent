@@ -6,15 +6,13 @@ log_service.py - ログ管理サービス
 エージェントの未回答質問ログなどを管理・保存・読み込みするサービス。
 """
 
-import os
 import csv
 import logging
 from datetime import datetime
 from pathlib import Path
-import pandas as pd
-from typing import List, Dict, Optional
+from typing import List
 
-from config import PathConfig
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 

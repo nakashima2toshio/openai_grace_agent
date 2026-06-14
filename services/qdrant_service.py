@@ -14,25 +14,21 @@ Qdrantベクトルデータベースの操作を担当
 
 """
 
+import logging
 import os
 import socket
 import time
-import logging
 import traceback
-import glob
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Tuple, Iterable
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-import tiktoken
-from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
-from qdrant_client_wrapper import (
-    embed_sparse_texts_unified,
-    create_or_recreate_collection
-)
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
+
+from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
+from qdrant_client_wrapper import stable_point_id
 
 logger = logging.getLogger(__name__)
 
@@ -140,13 +136,13 @@ def get_dynamic_collection_mapping(
 
             # 方法2: 完全一致のみ（フォールバック）
             if not csv_file:
-                logger.debug(f"   🔄 完全一致チェック中...")
+                logger.debug("   🔄 完全一致チェック中...")
                 csv_file = map_collection_to_csv(col_name, qa_output_dir)
 
                 if csv_file:
                     logger.debug(f"   ✅ 完全一致で発見: {csv_file}")
                 else:
-                    logger.debug(f"   ❌ マッピング不可")
+                    logger.debug("   ❌ マッピング不可")
 
             # マッピング結果の記録
             if csv_file:
@@ -158,7 +154,7 @@ def get_dynamic_collection_mapping(
 
         # サマリーログ
         logger.info(f"\n{'=' * 60}")
-        logger.info(f"📊 コレクションマッピングサマリー")
+        logger.info("📊 コレクションマッピングサマリー")
         logger.info(f"   総コレクション数: {len(collections_resp.collections)}")
         logger.info(f"   マッピング成功: {len(mapping)}")
         logger.info(f"   マッピング失敗: {len(unmapped_collections)}")
@@ -731,13 +727,40 @@ def create_or_recreate_collection_for_qdrant(
         pass
 
 
+def _normalize_for_id(text: Any) -> str:
+    """ポイントID算出用にテキストを正規化する（空白畳み込み・前後trim）。"""
+    return " ".join(str(text).split())
+
+
+def _content_point_key(row, domain: str, source_file: str, fallback_index: int) -> str:
+    """ポイントIDの元となる内容ベースのキーを返す。
+
+    位置（行番号）ではなく内容に基づくキーにすることで、Q/Aを再生成して
+    行順・行数が変わっても同一内容なら同一IDとなり、--recreate なしの
+    再登録でも upsert がべき等になる（旧実装は位置依存で重複が蓄積した）。
+    """
+    q = _normalize_for_id(getattr(row, "question", "") or "")
+    a = _normalize_for_id(getattr(row, "answer", "") or "")
+    if q or a:
+        return f"{domain}|qa|{q}|{a}"
+    # 非Q/A（汎用テキスト）CSV: 本文カラムで代替
+    for col in ("text", "Combined_Text", "content"):
+        val = getattr(row, col, None)
+        if val is not None and not (isinstance(val, float) and pd.isna(val)):
+            t = _normalize_for_id(val)
+            if t:
+                return f"{domain}|text|{t}"
+    # 最終フォールバック: 位置ベース（内容が空のとき。べき等性は保証されない）
+    return f"{domain}-{source_file}-{fallback_index}"
+
+
 def build_points_for_qdrant(
         df: pd.DataFrame,
         vectors: List[List[float]],
         domain: str,
         source_file: str,
         sparse_vectors: Optional[List[models.SparseVector]] = None,
-        start_index: int = 0  # 追加
+        start_index: int = 0  # 内容ベースIDの最終フォールバック用（通常は未使用）
 ) -> List[models.PointStruct]:
     """
     Qdrantポイントを構築
@@ -748,9 +771,14 @@ def build_points_for_qdrant(
         domain: ドメイン名
         source_file: ソースファイル名
         sparse_vectors: Sparse埋め込みベクトル (Optional)
+        start_index: 内容が空の行でのみ使うフォールバックIDの開始番号
 
     Returns:
         PointStructのリスト
+
+    Note:
+        ポイントIDは question+answer（無ければ本文）の内容ハッシュで決定する。
+        同一内容は同一IDとなるため、再登録時の重複蓄積を防ぐ（べき等）。
     """
     n = len(df)
     if len(vectors) != n:
@@ -765,15 +793,15 @@ def build_points_for_qdrant(
     for i, row in enumerate(df.itertuples(index=False)):
         payload = {
             "domain"    : domain,
-            "question"  : getattr(row, "question"),
-            "answer"    : getattr(row, "answer"),
+            "question"  : getattr(row, "question", ""),
+            "answer"    : getattr(row, "answer", ""),
             "source"    : os.path.basename(source_file),
             "created_at": now_iso,
             "schema"    : "qa:v1",
         }
 
-        global_index = start_index + i
-        pid = abs(hash(f"{domain}-{source_file}-{global_index}")) & 0x7FFFFFFFFFFFFFFF
+        # 内容ベースの決定的ID（位置非依存・再登録べき等）
+        pid = stable_point_id(_content_point_key(row, domain, source_file, start_index + i))
 
         # ベクトル構造の構築
         if sparse_vectors:

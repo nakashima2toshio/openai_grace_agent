@@ -9,12 +9,13 @@ YAMLベースの設定管理、環境変数オーバーライド、ロギング�
 - helper_api.py::ConfigManager
 """
 
-import os
-import yaml
 import logging
 import logging.handlers
-from typing import Dict, Any, Optional
+import os
 from pathlib import Path
+from typing import Any, Dict
+
+import yaml
 
 
 class ConfigManager:
@@ -130,7 +131,7 @@ class ConfigManager:
         return {
             "models": {
                 # [MIGRATION anthropic→openai] デフォルトモデルを OpenAI に変更
-                "default": "gpt-5.4-mini",
+                "default": "gpt-5-mini",
                 "available": [
                     "gpt-4o",
                     "gpt-4o-mini",

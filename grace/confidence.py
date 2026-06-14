@@ -7,15 +7,18 @@ GRACE Confidence - 信頼度計算システム
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+from helper.helper_embedding import create_embedding_client  # [FIXED] helper_embedding → helper.helper_embedding
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient は helper_llm 経由、Embedding は helper_embedding 経由で使用
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
-from helper.helper_embedding import create_embedding_client  # [FIXED] helper_embedding → helper.helper_embedding
-from pydantic import BaseModel
-from .config import get_config, GraceConfig
+
+from .config import GraceConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,13 @@ class EvaluationResult(BaseModel):  # ← 追加
     """LLM信頼度評価の応答スキーマ"""  # ← 追加
     score: float  # ← 追加
     reason: str
+
+
+class FinalEvaluationResult(BaseModel):
+    """最終回答の統合評価スキーマ（自己評価＋クエリ網羅度を1回の呼び出しで取得・#65）"""
+    self_eval_score: float = Field(..., ge=0.0, le=1.0, description="回答の確信度（正確性・適切性・スタイル）")
+    coverage_score: float = Field(..., ge=0.0, le=1.0, description="質問要素に対する回答の網羅度")
+    reason: str = Field("", description="評価理由の要約")
 
 
 @dataclass
@@ -494,7 +504,7 @@ class LLMSelfEvaluator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
             )
 
@@ -539,7 +549,6 @@ class LLMSelfEvaluator:
         Returns:
             Dict: {"score": float, "reason": str}
         """
-        import json
 
         prompt = f"""
 あなたはAIエージェントの実行監視役です。
@@ -596,7 +605,7 @@ class LLMSelfEvaluator:
                 prompt=prompt,
                 response_schema=EvaluationResult,
                 model=self.model_name,
-                max_completion_tokens=200,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=200,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
                 system="You are an AI agent monitor. Evaluate the step result and return structured JSON.",
             )
@@ -610,8 +619,72 @@ class LLMSelfEvaluator:
             logger.error(f"evaluate_with_factors failed: {e}")
             if factors.search_max_score > 0:
                 logger.info(f"Fallback to search_max_score: {factors.search_max_score:.4f}")
-                return {"score": factors.search_max_score, "reason": f"LLM evaluation failed, using search score"}
+                return {"score": factors.search_max_score, "reason": "LLM evaluation failed, using search score"}
             return {"score": 0.5, "reason": f"Evaluation error: {str(e)}"}
+
+    FINAL_EVAL_PROMPT = """以下の【質問】に対する【回答】を2つの観点で評価し、JSON形式で出力してください。
+
+【観点1: 確信度 (self_eval_score)】
+- 正確性: 回答は提供された情報源に基づいているか？捏造はないか？
+- 適切性: 質問に直接的かつ明確に答えているか？
+- スタイル: 丁寧で読みやすい日本語（です・ます調）か？
+スコア目安: 1.0=完全に正確・適切 / 0.6=やや確信あり / 0.4=不確実 / 0.0=不適切
+
+【観点2: 網羅度 (coverage_score)】
+- 質問のすべての要素をカバーしているか？
+スコア目安: 1.0=すべての要素に回答 / 0.6=主要な要素に回答 / 0.2=ほとんど回答できていない
+
+質問: {query}
+回答: {answer}
+使用した情報源: {sources}
+"""
+
+    def evaluate_final(
+            self,
+            query: str,
+            answer: str,
+            sources: Optional[List[str]] = None
+    ) -> FinalEvaluationResult:
+        """
+        最終回答の統合評価（自己評価＋クエリ網羅度）を1回のLLM呼び出しで実行（#65）
+
+        旧実装では evaluate()（確信度）と QueryCoverageCalculator.calculate()
+        （網羅度）の2回のLLM呼び出しが必要だったものを統合。
+
+        Args:
+            query: 元の質問
+            answer: 生成された回答
+            sources: 使用した情報源のリスト
+        Returns:
+            FinalEvaluationResult: 統合評価結果
+        Raises:
+            Exception: LLM呼び出し失敗時（呼び出し元でフォールバック処理）
+        """
+        sources_str = ", ".join(sources) if sources else "なし"
+        prompt = self.FINAL_EVAL_PROMPT.format(
+            query=query,
+            answer=answer,
+            sources=sources_str
+        )
+
+        import time as _time
+        t0 = _time.time()
+
+        result: FinalEvaluationResult = self.llm.generate_structured(
+            prompt=prompt,
+            response_schema=FinalEvaluationResult,
+            model=self.model_name,
+            max_completion_tokens=1024,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+            temperature=0.0,
+            system="You are an AI answer evaluator. Return structured JSON.",
+        )
+
+        elapsed = _time.time() - t0
+        logger.info(
+            f"[API時間] LLMSelfEvaluator.evaluate_final: {elapsed:.1f}秒 "
+            f"(self_eval={result.self_eval_score:.2f}, coverage={result.coverage_score:.2f})"
+        )
+        return result
 
 
 # =============================================================================
@@ -749,7 +822,7 @@ class QueryCoverageCalculator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=0.0,
             )
 
@@ -908,6 +981,10 @@ def create_confidence_aggregator(
 # =============================================================================
 
 __all__ = [
+    # Schemas
+    "EvaluationResult",
+    "FinalEvaluationResult",
+
     # Data classes
     "ConfidenceFactors",
     "ConfidenceScore",

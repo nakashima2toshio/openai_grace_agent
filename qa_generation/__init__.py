@@ -18,15 +18,20 @@ Module structure:
 # Models
 # ===================================================================
 from qa_generation.models import (
-    QAPair,
-    QAPairsList,
     ChainOfThoughtAnalysis,
     ChainOfThoughtQAPair,
     ChainOfThoughtResponse,
     EnhancedQAPair,
     EnhancedQAPairsList,
     QAGenerationConsiderations,
+    QAPair,
+    QAPairsList,
 )
+
+# ===================================================================
+# Pipeline
+# ===================================================================
+from qa_generation.pipeline import QAPipeline
 
 # ===================================================================
 # Semantic Coverage
@@ -37,11 +42,6 @@ from qa_generation.semantic import SemanticCoverage
 # Smart QA Generator
 # ===================================================================
 from qa_generation.smart_qa_generator import SmartQAGenerator
-
-# ===================================================================
-# Pipeline
-# ===================================================================
-from qa_generation.pipeline import QAPipeline
 
 # ===================================================================
 # Export

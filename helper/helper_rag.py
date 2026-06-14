@@ -2,15 +2,15 @@
 # RAGデータ前処理の共通機能（ロジックのみ）
 # -----------------------------------------
 
-import pandas as pd
-import re
 import io
-import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+import logging
 from datetime import datetime
 from functools import wraps
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 # ===================================================================
 # 基本ログ設定
@@ -21,10 +21,7 @@ logger = logging.getLogger(__name__)
 # ===================================================================
 # 共通モジュールからインポート
 # ===================================================================
-from helper.helper_llm import create_llm_client, LLMClient, DEFAULT_LLM_PROVIDER
-from helper.helper_embedding import create_embedding_client, EmbeddingClient, DEFAULT_EMBEDDING_PROVIDER, get_embedding_dimensions, get_embedding_model_pricing
-from helper.helper_llm import get_llm_model_pricing
-from helper.helper_text import clean_text
+from helper.helper_text import clean_text  # noqa: E402
 
 
 # ==================================================
@@ -340,14 +337,15 @@ def create_output_directory() -> Path:
 
 
 @safe_execute
-def save_files_to_output(df_processed, dataset_type: str, csv_data: str, text_data: str = None) -> Dict[str, str]:
+def save_files_to_output(df_processed, dataset_type: str, csv_data: str, text_data: str = None, output_name: str = None) -> Dict[str, str]:
     """処理済みデータをOUTPUTフォルダに保存"""
     output_dir = create_output_directory()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     saved_files = {}
 
     # CSVファイルの保存
-    csv_filename = f"preprocessed_{dataset_type}.csv"
+    base_name = output_name if output_name else f"preprocessed_{dataset_type}"
+    csv_filename = f"{base_name}.csv"
     csv_path = output_dir / csv_filename
 
     with open(csv_path, 'w', encoding='utf-8') as f:

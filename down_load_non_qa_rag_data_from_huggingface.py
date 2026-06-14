@@ -24,25 +24,22 @@ down_load_non_qa_rag_data_from_huggingface.py - 非Q&A型RAGデータ処理ツ�
 4. livedoor: Livedoorニュースコーパス（日本語ニュース9カテゴリ、7,376件）
 """
 
-import streamlit as st
-import pandas as pd
-import json
 import io
-import urllib.request
+import json
+import logging
 import tarfile
+import urllib.request
 from datetime import datetime
 from pathlib import Path
-import logging
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+
+import pandas as pd
+import streamlit as st
+
+from config import GeminiConfig
 
 # ローカルモジュール
-from helper.helper_rag import (
-    validate_data,
-    save_files_to_output,
-    clean_text,
-    safe_execute
-)
-from config import GeminiConfig
+from helper.helper_rag import clean_text, safe_execute, save_files_to_output, validate_data
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -108,8 +105,8 @@ def _import_hf_load_dataset():
     対策: sys.path から「datasets/ ディレクトリはあるが __init__.py がない」
     パスを一時的に除外し、正規のHuggingFaceパッケージのみを読み込む。
     """
-    import sys
     import importlib
+    import sys
 
     # ローカル datasets がキャッシュされている場合はクリア
     for key in list(sys.modules.keys()):
@@ -782,7 +779,7 @@ def main():
                     if not split_name:
                         split_name = "train"
 
-                    with st.spinner(f"データをダウンロード中..."):
+                    with st.spinner("データをダウンロード中..."):
                         # ストリーミングモードで確実にロード
                         samples = []
 
