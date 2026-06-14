@@ -24,11 +24,11 @@ OpenAI Embeddings API と Gemini Embeddings API の両方に対応する統一�
     vectors = embedding.embed_texts(["Hello", "World"], batch_size=100)
 """
 
+import logging
+import os
+import time
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
-import os
-import logging
-import time
 
 from dotenv import load_dotenv
 
@@ -321,7 +321,9 @@ def create_embedding_client(
         return GeminiEmbedding(**kwargs)
     elif provider.lower() == "fastembed":
         try:
-            from helper.helper_embedding_fastembed import FastEmbedEmbedding  # [FIXED] helper_embedding_fastembed → helper.helper_embedding_fastembed
+            from helper.helper_embedding_fastembed import (
+                FastEmbedEmbedding,  # [FIXED] helper_embedding_fastembed → helper.helper_embedding_fastembed
+            )
             return FastEmbedEmbedding(**kwargs)
         except ImportError as e:
             raise ImportError(f"FastEmbed module load failed: {e}. Check if 'fastembed' is installed.")

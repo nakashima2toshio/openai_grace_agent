@@ -32,21 +32,26 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
 
 import json
 import logging
-from typing import List, Dict, Optional, Any
-import pandas as pd
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
+from celery_tasks import check_celery_workers, collect_results, submit_unified_qa_generation
 from config import DATASET_CONFIGS
 from helper.helper_llm import LLMClient
-from qa_generation.smart_qa_generator import SmartQAGenerator
 from qa_generation.evaluation import analyze_coverage
-from celery_tasks import submit_unified_qa_generation, collect_results, check_celery_workers
+from qa_generation.smart_qa_generator import SmartQAGenerator
 
 # トークン集計（同期実行時のみ。Celery経路はワーカープロセス側で消費されるため対象外）
 try:
     from helper.helper_llm import (
         LLM_PRICING as _LLM_PRICING,
+    )
+    from helper.helper_llm import (
         get_token_counter as _get_token_counter,
+    )
+    from helper.helper_llm import (
         reset_token_counter as _reset_token_counter,
     )
     _TOKEN_TRACKING_AVAILABLE = True
@@ -138,7 +143,7 @@ class QAPipeline:
 
     def load_data(self) -> pd.DataFrame:
         """データを読み込む"""
-        from qa_generation.data_io import load_uploaded_file, load_preprocessed_data
+        from qa_generation.data_io import load_preprocessed_data, load_uploaded_file
 
         logger.info("\n[1/3] データ読み込み...")
 

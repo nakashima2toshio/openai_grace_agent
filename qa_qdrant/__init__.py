@@ -7,16 +7,17 @@ make_qa.py - Q/Aペア生成 CLIエントリーポイント（改修版）
 🔧 qa_qdrant/ ディレクトリ配下に移動後の修正版
 """
 
-import sys
 import os
+import sys
 
 # 🔧 プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import logging
-from qa_generation.pipeline import QAPipeline
+
 from config import DATASET_CONFIGS
+from qa_generation.pipeline import QAPipeline
 
 # ログ設定
 logging.basicConfig(

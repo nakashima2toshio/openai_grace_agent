@@ -7,15 +7,18 @@ GRACE Confidence - 信頼度計算システム
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+from helper.helper_embedding import create_embedding_client  # [FIXED] helper_embedding → helper.helper_embedding
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient は helper_llm 経由、Embedding は helper_embedding 経由で使用
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
-from helper.helper_embedding import create_embedding_client  # [FIXED] helper_embedding → helper.helper_embedding
-from pydantic import BaseModel, Field
-from .config import get_config, GraceConfig
+
+from .config import GraceConfig, get_config
 
 logger = logging.getLogger(__name__)
 

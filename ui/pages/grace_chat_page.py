@@ -10,24 +10,30 @@ GRACE (Planner + Executor) アーキテクチャを使用したエージェン�
 """
 
 import logging
-import streamlit as st
-import pandas as pd
 from typing import List, Optional
+
+import pandas as pd
+import streamlit as st
 
 # Configuration and Services
 from config import AgentConfig, GeminiConfig
+from grace import (
+    ExecutionPlan,
+    ExecutionResult,
+    ExecutionState,
+    Executor,
+    StepStatus,
+    create_executor,
+    create_planner,
+)
+from grace import (
+    get_config as get_grace_config,
+)
+from qdrant_client_wrapper import get_qdrant_client
 
 # --- STEP 2-1: import変更 ---
 # 旧: from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
 from services.agent_service import get_available_collections_from_qdrant_helper  # これだけ残す
-from grace import (
-    create_planner,
-    Executor, create_executor,
-    ExecutionPlan, ExecutionState, ExecutionResult,
-    StepStatus,
-    get_config as get_grace_config,
-)
-from qdrant_client_wrapper import get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +93,7 @@ def show_grace_chat_page():
                         try:
                             col_info = client.get_collection(target_collection)
                             total_points = col_info.points_count if hasattr(col_info, 'points_count') else "N/A"
-                        except:
+                        except Exception:
                             total_points = "N/A"
 
                         st.caption(f"📈 表示: {len(data_list)} 件 / 総ポイント数: {total_points}")
@@ -138,7 +144,7 @@ def show_grace_chat_page():
             all_collections = ["(None)"]
 
         # 検索対象コレクションの表示（GRACEは全コレクション自動検索）
-        selected_collections = st.multiselect(
+        _selected_collections = st.multiselect(
             "検索対象コレクション (参考表示)",
             options=all_collections,
             default=all_collections if all_collections != ["(None)"] else [],
@@ -146,7 +152,7 @@ def show_grace_chat_page():
         )
 
         # ハイブリッド検索（表示のみ・GRACE側デフォルトに任せる）
-        use_hybrid_search = st.checkbox(
+        _use_hybrid_search = st.checkbox(
             "⚡ ハイブリッド検索 (Sparse + Dense)",
             value=True,
             help="GRACEエージェント内部のデフォルト動作に従います",

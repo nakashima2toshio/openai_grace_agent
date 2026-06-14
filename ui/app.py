@@ -12,9 +12,10 @@ RAGツールのStreamlitメインエントリポイント
     streamlit run agent_rag.py  # 従来の方法
 """
 
-import streamlit as st
 import sys
 from pathlib import Path
+
+import streamlit as st
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).parent.parent

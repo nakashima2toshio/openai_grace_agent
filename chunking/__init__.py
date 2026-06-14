@@ -22,22 +22,6 @@ chunking__init__updated.py
 # ===================================================================
 # Models
 # ===================================================================
-from .models import (
-    SentenceUnit,
-    ParagraphUnit,
-    StructuralResult,
-    ContinuityResult
-)
-
-# ===================================================================
-# Prompts
-# ===================================================================
-from .prompts import (
-    PARAGRAPH_SEPARATION_PROMPT,
-    SEMANTIC_CHUNKING_PROMPT,
-    CONTINUITY_CHECK_PROMPT
-)
-
 # ===================================================================
 # API Client
 # ===================================================================
@@ -52,22 +36,22 @@ from .checkpoint_manager import CheckpointManager
 # Main Processor (✅ v1.2.0 更新)
 # ===================================================================
 from .csv_text_to_chunks_text_csv import (
-    chunks_all_async,        # ✅ 既存（シグネチャ拡張）
-    load_text_from_csv,      # ✅ v1.2.0 新規追加
-    save_chunks_as_csv,      # ✅ v1.2.0 新規追加
-    save_chunks_as_text,     # ✅ v1.2.0 新規追加
+    chunks_all_async,  # ✅ 既存（シグネチャ拡張）
+    load_text_from_csv,  # ✅ v1.2.0 新規追加
+    save_chunks_as_csv,  # ✅ v1.2.0 新規追加
+    save_chunks_as_text,  # ✅ v1.2.0 新規追加
 )
+from .models import ContinuityResult, ParagraphUnit, SentenceUnit, StructuralResult
+
+# ===================================================================
+# Prompts
+# ===================================================================
+from .prompts import CONTINUITY_CHECK_PROMPT, PARAGRAPH_SEPARATION_PROMPT, SEMANTIC_CHUNKING_PROMPT
 
 # ===================================================================
 # Utils
 # ===================================================================
-from .utils import (
-    show_paragraphs,
-    setup_logging,
-    format_time,
-    format_size,
-    estimate_api_calls
-)
+from .utils import estimate_api_calls, format_size, format_time, setup_logging, show_paragraphs
 
 # ===================================================================
 # Version

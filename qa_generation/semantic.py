@@ -4,13 +4,15 @@
 qa_generation/semantic.py - セマンティック分析・カバレッジ測定モジュール
 """
 
-import re
 import logging
-from typing import List, Dict, Any
+import re
+from typing import Any, Dict, List
+
 import numpy as np
 import tiktoken
-from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
+
 from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
+from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
 logger = logging.getLogger(__name__)
 

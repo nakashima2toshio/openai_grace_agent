@@ -15,10 +15,10 @@ celery_tasks.py - Celeryタスク定義（修正版 v3.0）
 - get_worker_info() 詳細情報取得関数の追加
 """
 
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Union, Callable
+from typing import Callable, Dict, List, Optional, Union
 
 # ================================================================
 # 重要: プロジェクトルートをsys.pathに追加
@@ -32,7 +32,7 @@ helper_path = project_root / 'helper'
 if helper_path.exists() and str(helper_path) not in sys.path:
     sys.path.insert(0, str(helper_path))
 
-from celery_config import app
+from celery_config import app  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def generate_qa_for_chunk_task(
     logger.info(f"  text_length: {len(chunk_text)} 文字")
 
     try:
-        from helper.helper_llm import reset_token_counter, get_token_counter
+        from helper.helper_llm import get_token_counter, reset_token_counter
 
         # 空テキストチェック
         if not chunk_text.strip():

@@ -1,15 +1,18 @@
 
-import streamlit as st
+from typing import Any, Dict
+
 import pandas as pd
 import plotly.express as px
-from typing import Dict, Any
+import streamlit as st
+
 from grace.schemas import ExecutionPlan
+
 
 def display_confidence_metric(score: float, level: str, breakdown: Dict[str, float]):
     """信頼度スコアと内訳を表示するコンポーネント"""
     
     # スコア表示
-    color = "green" if score >= 0.7 else "orange" if score >= 0.4 else "red"
+    _color = "green" if score >= 0.7 else "orange" if score >= 0.4 else "red"
     st.metric(
         label="Current Confidence",
         value=f"{score:.2f}",

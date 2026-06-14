@@ -12,11 +12,11 @@ agent_parallel_search.py - 並列検索エンジン
 - 進捗ログ
 """
 
-import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from typing import List, Dict, Any, Callable, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

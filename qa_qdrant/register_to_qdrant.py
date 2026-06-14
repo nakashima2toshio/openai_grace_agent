@@ -36,8 +36,8 @@ register_csv_to_qdrant.py と register_qdrant.py を統合した最終版
       --max-docs 10
 """
 
-import sys
 import os
+import sys
 
 # プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,17 +45,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import logging
 import re
-import pandas as pd
 from typing import List, Optional
+
+import pandas as pd
+
+from qdrant_client_wrapper import create_qdrant_client
 
 # プロジェクト内モジュール
 from services.qdrant_service import (
+    build_points_for_qdrant,
     create_or_recreate_collection_for_qdrant,
     embed_texts_for_qdrant,
     upsert_points_to_qdrant,
-    build_points_for_qdrant
 )
-from qdrant_client_wrapper import create_qdrant_client
 
 # ログ設定
 logging.basicConfig(

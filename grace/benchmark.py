@@ -285,9 +285,12 @@ class BenchmarkLogger:
         )
 
     def _score_to_intervention(self, score: float) -> str:
-        if score >= self._THRESH_SILENT:  return "SILENT"
-        if score >= self._THRESH_NOTIFY:  return "NOTIFY"
-        if score >= self._THRESH_CONFIRM: return "CONFIRM"
+        if score >= self._THRESH_SILENT:
+            return "SILENT"
+        if score >= self._THRESH_NOTIFY:
+            return "NOTIFY"
+        if score >= self._THRESH_CONFIRM:
+            return "CONFIRM"
         return "ESCALATE"
 
     def finalize_and_log(self, session: BenchmarkSession) -> None:
@@ -353,8 +356,8 @@ class BenchmarkRunner:
         level:      str = "",
         category:   str = "",
     ) -> BenchmarkSession:
-        from .planner  import Planner
         from .executor import Executor
+        from .planner import Planner
 
         session = BenchmarkSession(
             query_id   = query_id,
@@ -392,8 +395,10 @@ class BenchmarkRunner:
             )
             session.overall_status = "failed"
             now = time.monotonic()
-            if session.plan_end    == 0.0: session.plan_end    = now
-            if session.execute_end == 0.0: session.execute_end = now
+            if session.plan_end == 0.0:
+                session.plan_end = now
+            if session.execute_end == 0.0:
+                session.execute_end = now
 
         finally:
             self.bm_logger.finalize_and_log(session)

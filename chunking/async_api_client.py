@@ -20,7 +20,7 @@
 import asyncio
 import json
 import logging
-from typing import Type, Optional
+from typing import Optional, Type
 
 from openai import OpenAI
 from pydantic import BaseModel

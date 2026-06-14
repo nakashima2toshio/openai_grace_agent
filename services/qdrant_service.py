@@ -14,22 +14,21 @@ Qdrantベクトルデータベースの操作を担当
 
 """
 
+import logging
 import os
 import socket
 import time
-import logging
 import traceback
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Tuple, Iterable
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
-from qdrant_client_wrapper import (
-    stable_point_id
-)
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
+
+from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
+from qdrant_client_wrapper import stable_point_id
 
 logger = logging.getLogger(__name__)
 

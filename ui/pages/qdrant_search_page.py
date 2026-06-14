@@ -14,16 +14,19 @@ Qdrantベクトルデータベースを使用した意味検索
 
 import pandas as pd
 import streamlit as st
-from helper.helper_llm import create_llm_client
 from qdrant_client import QdrantClient
+
+from helper.helper_llm import create_llm_client
+from qdrant_client_wrapper import (
+    embed_sparse_query_unified,  # Import search_collection and embed_sparse_query_unified
+    search_collection,
+)
 
 # サービスモジュールからインポート
 from services.qdrant_service import (
     embed_query_for_search,
     get_collection_embedding_params,
 )
-from qdrant_client_wrapper import search_collection, \
-    embed_sparse_query_unified  # Import search_collection and embed_sparse_query_unified
 
 
 def show_qdrant_search_page():
@@ -159,7 +162,7 @@ def show_qdrant_search_page():
                 try:
                     col_info = client.get_collection(collection)
                     total_points = col_info.points_count if hasattr(col_info, 'points_count') else "N/A"
-                except:
+                except Exception:
                     total_points = "N/A"
 
                 st.caption(f"📈 表示: {len(data_list)} 件 / 総ポイント数: {total_points}")
@@ -213,7 +216,7 @@ def show_qdrant_search_page():
             # コレクションに対応した埋め込み設定を取得
             collection_config = get_collection_embedding_params(client, collection)
             embedding_model = collection_config["model"]
-            embedding_dims = collection_config.get("dims")
+            _embedding_dims = collection_config.get("dims")
 
             # クエリの埋め込みベクトルを生成
             with st.spinner("クエリの埋め込みベクトルを生成中..."):

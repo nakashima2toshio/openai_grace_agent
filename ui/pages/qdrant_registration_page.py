@@ -11,27 +11,29 @@ Q/AデータのQdrantへの登録機能
 """
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 
 import pandas as pd
 import streamlit as st
 from qdrant_client import QdrantClient
 
-# サービスモジュールからインポート
-from services.qdrant_service import (
-    get_collection_stats,
-    load_csv_for_qdrant,
-    build_inputs_for_embedding,
-    embed_texts_for_qdrant,
-    create_or_recreate_collection_for_qdrant,
-    build_points_for_qdrant,
-    upsert_points_to_qdrant,
-)
+from helper.helper_embedding import DEFAULT_EMBEDDING_PROVIDER, get_embedding_dimensions
+
 # Wrapperから直接インポート (Sparse用)
 from qdrant_client_wrapper import embed_sparse_texts_unified
-from helper.helper_embedding import get_embedding_dimensions, DEFAULT_EMBEDDING_PROVIDER
+
+# サービスモジュールからインポート
+from services.qdrant_service import (
+    build_inputs_for_embedding,
+    build_points_for_qdrant,
+    create_or_recreate_collection_for_qdrant,
+    embed_texts_for_qdrant,
+    get_collection_stats,
+    load_csv_for_qdrant,
+    upsert_points_to_qdrant,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -34,16 +34,17 @@ make_qa.py - Q/Aペア生成 CLIエントリーポイント（v3.0 - pipeline.py
     -c 4
 """
 
-import sys
 import os
+import sys
 
 # 🔧 プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import logging
-from qa_generation.pipeline import QAPipeline
+
 from config import DATASET_CONFIGS
+from qa_generation.pipeline import QAPipeline
 
 # ログ設定
 logging.basicConfig(

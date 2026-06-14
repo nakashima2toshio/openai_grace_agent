@@ -8,18 +8,19 @@ Rankの無効化：
     reranked_results = rerank_results(query, candidates, top_k=AgentConfig.RAG_SEARCH_LIMIT)
 """
 
-import time
 import logging
-from typing import List, Optional, Dict, Any, Union
+import time
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
+
 from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
-from qdrant_client_wrapper import search_collection, embed_query, embed_sparse_query_unified, get_qdrant_client
-from config import AgentConfig, CohereConfig
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 # キャッシュと並列検索のインポート
 from agent_cache import collection_cache
 from agent_parallel_search import parallel_search_engine
+from config import AgentConfig, CohereConfig
+from qdrant_client_wrapper import embed_query, embed_sparse_query_unified, get_qdrant_client, search_collection
 
 try:
     import cohere

@@ -12,10 +12,10 @@ agent_cache.py - コレクションキャッシュマネージャー
 - ヒット回数の追跡
 """
 
-import time
 import logging
-from typing import Optional, Dict
+import time
 from dataclasses import dataclass
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 

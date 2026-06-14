@@ -69,30 +69,24 @@ uv run python qa_qdrant/make_qa_register_qdrant.py \
   # → chunks_output/document_chunks_20250118_123456_simple.csv （シンプル版）も同時生成
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
+import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import pandas as pd
 import tiktoken
-import re
 from tqdm.asyncio import tqdm as async_tqdm
 
 # 既存のインポート
 from chunking.async_api_client import AsyncAPIClient
 from chunking.checkpoint_manager import CheckpointManager
-from chunking.models import StructuralResult, ContinuityResult
-from chunking.prompts import (
-    PARAGRAPH_SEPARATION_PROMPT,
-    SEMANTIC_CHUNKING_PROMPT,
-    CONTINUITY_CHECK_PROMPT
-)
-from chunking.utils import (
-    setup_logging,
-    format_size
-)
+from chunking.models import ContinuityResult, StructuralResult
+from chunking.prompts import CONTINUITY_CHECK_PROMPT, PARAGRAPH_SEPARATION_PROMPT, SEMANTIC_CHUNKING_PROMPT
 from chunking.regex_string import chunk_text
+from chunking.utils import format_size, setup_logging
 
 logger = logging.getLogger(__name__)
 

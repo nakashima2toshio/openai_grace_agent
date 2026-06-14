@@ -1,0 +1,85 @@
+# ============================================================================
+# CI + 自動マージ ワークフロー
+# ----------------------------------------------------------------------------
+# 方針:
+#  - CI ゲート（必須）: `ruff check .`（blocking）+ `python -m compileall`。
+#  - 自動マージ: CI が緑になった `claude/*` ブランチの PR を master へ自動マージ。
+#                ドラフトでも Ready 化して merge する（claude/* に限定）。
+#                `hold` ラベルが付いた PR は自動マージしない（保留用エスケープ）。
+#  - master への直接 push は引き続き許可（ブランチ保護は掛けない）。push 時は
+#    ruff/compileall のみ実行し、マージ系ジョブは動かない。
+#  - 統合テスト（実 LLM/Qdrant/Redis）は API キー・サービスが必要なため CI 既定では
+#    実行しない。別ジョブ（workflow_dispatch / Secrets）として追加すること。
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    branches: [master]
+  push:
+    branches: [master]
+
+# 自動マージ（gh pr merge / gh pr ready）に必要な書き込み権限
+permissions:
+  contents: write
+  pull-requests: write
+
+# 同一参照に対する多重実行を抑制
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 必須チェック: ruff（blocking） + compileall（構文ゲート）
+  # --------------------------------------------------------------------------
+  build:
+    name: lint + compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: pip install ruff==0.12.11
+
+      # ハードゲート: lint（pyproject.toml の [tool.ruff] 設定に従う）
+      - name: Ruff lint (whole repo, blocking)
+        run: ruff check .
+
+      # ハードゲート: 全 .py の構文/バイトコンパイル（外部サービス・APIキー不要）
+      - name: Compile all (syntax gate)
+        run: python -m compileall -q -x '\.venv|/old_code/|/\.git/' .
+
+  # --------------------------------------------------------------------------
+  # 自動マージ: claude/* ブランチの PR を CI 成功後に master へマージ
+  # --------------------------------------------------------------------------
+  auto-merge:
+    name: auto-merge (claude/*)
+    needs: build
+    if: >-
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'claude/') &&
+      !contains(github.event.pull_request.labels.*.name, 'hold')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Mark ready & merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # ドラフトなら Ready 化（既に Ready ならエラーになるので無視）
+          gh pr ready "$PR" --repo "$REPO" || true
+          # CI（build）成功後にマージ。マージコミット方式。
+          # リポジトリがマージコミット禁止の場合は --squash / --rebase に変更すること。
+          gh pr merge "$PR" --repo "$REPO" --merge

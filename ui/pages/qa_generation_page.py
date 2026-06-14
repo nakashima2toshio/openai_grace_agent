@@ -16,10 +16,11 @@ from pathlib import Path
 
 import streamlit as st
 
+from config import DATASET_CONFIGS, ModelConfig
+
 # サービスモジュールからインポート
 from services.file_service import load_qa_output_history
 from services.qa_service import run_advanced_qa_generation
-from config import DATASET_CONFIGS, ModelConfig
 
 
 def show_qa_generation_page():

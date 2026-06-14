@@ -38,12 +38,12 @@ __all__ = [
 
 def get_page_mapping():
     """ページマッピングを取得（遅延インポート）"""
-    from ui.pages.explanation_page import show_system_explanation_page
     from ui.pages.download_page import show_rag_download_page
+    from ui.pages.explanation_page import show_system_explanation_page
     from ui.pages.qa_generation_page import show_qa_generation_page
     from ui.pages.qdrant_registration_page import show_qdrant_registration_page
-    from ui.pages.qdrant_show_page import show_qdrant_page
     from ui.pages.qdrant_search_page import show_qdrant_search_page
+    from ui.pages.qdrant_show_page import show_qdrant_page
 
     return {
         "explanation": show_system_explanation_page,

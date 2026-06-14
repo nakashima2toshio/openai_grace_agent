@@ -12,12 +12,12 @@ dataset_service.py - データセット操作サービス
 - テキストの前処理・抽出
 """
 
-import logging
 import json
+import logging
 import tarfile
 import urllib.request
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
 

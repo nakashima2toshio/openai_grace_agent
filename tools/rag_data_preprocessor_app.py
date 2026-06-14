@@ -2,16 +2,17 @@
 # カスタマーサポートFAQデータのRAG前処理（モデル選択機能付き・独立版）
 # streamlit run a011_make_rag_data_customer.py --server.port=8501
 
-import streamlit as st
-import pandas as pd
-import re
 import io
-import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+import logging
+import re
 from datetime import datetime
 from functools import wraps
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
+import streamlit as st
 
 # 基本ログ設定
 logging.basicConfig(level=logging.INFO)

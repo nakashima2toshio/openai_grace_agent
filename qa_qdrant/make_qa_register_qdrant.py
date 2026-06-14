@@ -85,8 +85,8 @@ Q/A生成（SmartQAGenerator: 構造化出力1回/チャンクに一本化）:
 ============================================================================
 """
 
-import sys
 import os
+import sys
 
 # 🔧 プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -94,21 +94,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import logging
 import re
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
+from config import DATASET_CONFIGS
 
 # QA生成関連
 from qa_generation.pipeline import QAPipeline
-from config import DATASET_CONFIGS
+from qdrant_client_wrapper import create_qdrant_client
 
 # Qdrant登録関連
 from services.qdrant_service import (
+    build_points_for_qdrant,
     create_or_recreate_collection_for_qdrant,
     embed_texts_for_qdrant,
     upsert_points_to_qdrant,
-    build_points_for_qdrant
 )
-from qdrant_client_wrapper import create_qdrant_client
 
 # ログ設定
 logging.basicConfig(

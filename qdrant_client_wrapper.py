@@ -11,14 +11,14 @@ Qdrantベクトルデータベースとの操作を一元管理
 - a50_rag_search_local_qdrant.py
 """
 
-import os
 import hashlib
 import logging
+import os
 import socket
 import time
 import traceback
-from typing import Dict, List, Optional, Any, Tuple, Iterable
 from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 from qdrant_client import QdrantClient
@@ -27,11 +27,11 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Gemini 3 Migration: Embedding抽象化レイヤー
 from helper.helper_embedding import (
-    create_embedding_client,
-    get_embedding_dimensions,
-    EmbeddingClient,
     DEFAULT_GEMINI_EMBEDDING_DIMS,
     DEFAULT_OPENAI_EMBEDDING_DIMS,
+    EmbeddingClient,
+    create_embedding_client,
+    get_embedding_dimensions,
 )
 from helper.helper_embedding_sparse import get_sparse_embedding_client
 

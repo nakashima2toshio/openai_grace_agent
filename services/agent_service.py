@@ -1,22 +1,18 @@
 # agent_services.py
 import uuid
-from typing import Dict, List, Any, Optional, Generator
-from qdrant_client_wrapper import get_qdrant_client
+from typing import Any, Dict, Generator, List, Optional
+
+from agent_tools import RAGToolError, list_rag_collections, search_rag_knowledge_base, search_rag_knowledge_base_cached
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # [MIGRATION] AgentConfig, GeminiConfig を削除（Anthropic版では不要）
 # [MIGRATION] AnthropicClient を helper_llm 経由で使用
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
-from agent_tools import (
-    search_rag_knowledge_base,
-    list_rag_collections,
-    RAGToolError,
-    search_rag_knowledge_base_cached
-)
-from services.log_service import log_unanswered_question
+from qdrant_client_wrapper import get_qdrant_client
 
 # 設定サービスからロガーと設定を取得
-from services.config_service import logger, get_config
+from services.config_service import get_config, logger
+from services.log_service import log_unanswered_question
 
 # キーワード抽出（オプション）
 try:

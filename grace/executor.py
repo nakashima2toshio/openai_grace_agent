@@ -7,36 +7,36 @@ GRACE Executor - 計画実行エージェント
 import ast
 import logging
 import time
-from typing import Dict, Literal, Optional, List, Callable, Any, Generator, cast
 from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Generator, List, Literal, Optional, cast
 
+from .confidence import (
+    ActionDecision,
+    ConfidenceFactors,
+    ConfidenceScore,
+    InterventionLevel,
+    create_confidence_aggregator,
+    create_confidence_calculator,
+    create_llm_evaluator,
+    create_query_coverage_calculator,
+    create_source_agreement_calculator,  # TODO #5: 追加
+)
+from .config import GraceConfig, get_config
+from .intervention import (
+    InterventionAction,
+    InterventionRequest,
+    InterventionResponse,
+    create_intervention_handler,
+)
 from .schemas import (
     ExecutionPlan,
+    ExecutionResult,
     PlanStep,
     StepResult,
-    ExecutionResult,
     StepStatus,
     create_plan_id,
 )
 from .tools import ToolRegistry, ToolResult, create_tool_registry
-from .config import get_config, GraceConfig
-from .confidence import (
-    ConfidenceFactors,
-    ConfidenceScore,
-    ActionDecision,
-    InterventionLevel,
-    create_confidence_calculator,
-    create_llm_evaluator,
-    create_confidence_aggregator,
-    create_query_coverage_calculator,
-    create_source_agreement_calculator,  # TODO #5: 追加
-)
-from .intervention import (
-    InterventionRequest,
-    InterventionResponse,
-    InterventionAction,
-    create_intervention_handler,
-)
 
 # === Legacy Agent Integration ===
 try:
@@ -118,7 +118,7 @@ class ExecutionState:
 # Executor クラス
 # =============================================================================
 
-from .replan import ReplanOrchestrator, create_replan_orchestrator
+from .replan import ReplanOrchestrator, create_replan_orchestrator  # noqa: E402
 
 
 class Executor:

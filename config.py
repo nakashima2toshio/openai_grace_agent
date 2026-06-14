@@ -13,10 +13,9 @@ config.py - 設定・定数の一元管理
 - qdrant_client_wrapper.py
 """
 import os
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
-
+from typing import Any, Dict, List, Optional
 
 # ===================================================================
 # モデル設定

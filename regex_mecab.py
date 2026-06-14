@@ -2,10 +2,10 @@
 # MeCab複合名詞版と正規表現版を統合したロバストなキーワード抽出システム
 # [Usage:] List: keywords = extractor.extract(sample_text_jp, top_n=10)
 # [Usage:] List: chunks = chunk_text(sample_text_jp2)
-import re
 import logging
-from typing import List, Dict, Tuple
+import re
 from collections import Counter
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 

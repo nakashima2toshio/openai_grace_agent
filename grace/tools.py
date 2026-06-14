@@ -6,18 +6,18 @@ GRACE Tools - ツール定義
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient
+
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # ReasoningTool の LLM 呼び出しは helper_llm 経由の AnthropicClient に置換
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
+from regex_mecab import KeywordExtractor
 
 # Import wrappers for robust execution
-
-from .config import get_config, GraceConfig
-from regex_mecab import KeywordExtractor
+from .config import GraceConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ class RAGSearchTool(BaseTool):
             ToolResult: 検索結果
         """
         import time
+
         from agent_tools import search_rag_knowledge_base_structured
 
         start_time = time.time()
@@ -658,6 +659,7 @@ class WebSearchTool(BaseTool):
     def _search_google(self, query: str, num_results: int, language: str) -> list:
         """Google CSE検索バックエンド"""
         import os
+
         import requests
 
         api_key = (
@@ -693,6 +695,7 @@ class WebSearchTool(BaseTool):
         """SerpAPI検索バックエンド（リトライ1回付き）"""
         import os
         import time as _time
+
         import requests
 
         api_key = (

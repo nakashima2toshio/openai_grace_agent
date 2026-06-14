@@ -2,14 +2,15 @@
 # RAGデータ前処理の共通機能（ロジックのみ）
 # -----------------------------------------
 
-import pandas as pd
 import io
-import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+import logging
 from datetime import datetime
 from functools import wraps
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 # ===================================================================
 # 基本ログ設定
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ===================================================================
 # 共通モジュールからインポート
 # ===================================================================
-from helper.helper_text import clean_text
+from helper.helper_text import clean_text  # noqa: E402
 
 
 # ==================================================

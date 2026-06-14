@@ -12,23 +12,25 @@ HuggingFaceからのデータダウンロードと前処理
 - OUTPUT/フォルダへの保存
 """
 
-import streamlit as st
 from datetime import datetime
 from pathlib import Path
 
+import streamlit as st
+
+from config import DATASET_CONFIGS
+
 # サービスモジュールからインポート
 from services.dataset_service import (
-    download_livedoor_corpus,
-    load_livedoor_corpus,
     download_hf_dataset,
+    download_livedoor_corpus,
     extract_text_content,
+    load_livedoor_corpus,
     load_uploaded_file,
 )
 from services.file_service import (
     load_preprocessed_history,
     save_to_output,
 )
-from config import DATASET_CONFIGS
 
 
 def show_rag_download_page():

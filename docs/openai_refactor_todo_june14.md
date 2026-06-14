@@ -205,10 +205,10 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [ ] F3 ToolUseResponse/TypeVar（任意・低優先・スキップ判断）
 
 ### Phase G — 不足ファイル・整合性整理（フォルダー照合で追加）
-- [ ] G1 qdrant_delete_collection.py 移植（低優先）
-- [ ] G2 ui/pages/benchmark_page.py 移植
+- [x] G1 qdrant_delete_collection.py 移植 ✅ (G1/G2 commit)
+- [x] G2 ui/pages/benchmark_page.py 移植 ✅ (G1/G2 commit)
 - [x] G3 残存 gpt-5.4-mini → gpt-5-mini 統一 ✅ 9dcfece
-- [ ] G4 未使用 import 整理（低優先）
+- [x] G4 未使用 import 整理（ruff F401/F541・46ファイル）✅ 98e5e69
 
 ---
 
