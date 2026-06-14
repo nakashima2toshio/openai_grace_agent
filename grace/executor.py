@@ -1002,36 +1002,30 @@ class Executor:
                 return e.value
         return step_execution
 
-    def _llm_calculate_step_confidence(
+    def _build_confidence_factors(
             self,
             tool_result: ToolResult,
             step: PlanStep,
             state: ExecutionState
-    ) -> float:
-        """
-        LLMを使用したステップ信頼度の計算
-        """
-        if not tool_result.success:
-            return 0.0
+    ) -> ConfidenceFactors:
+        """ツール結果とステップ情報から ConfidenceFactors を構築する（共通部・#66）
 
+        LLM評価版/ヒューリスティック版の両経路で重複していた構築ロジックを集約する。
+        """
         factors = tool_result.confidence_factors
-        logger.info(f"[_llm_calculate_step_confidence] Initial factors: {factors}")
 
-        # ConfidenceFactorsを構築
-        # source_countの決定: ツールが明示的に返した値を優先
+        # source_count の決定: ツールが明示的に返した値を優先
         extracted_sources = self._extract_sources(tool_result)
         source_count = factors.get("source_count", len(extracted_sources))
 
         # ソース一致度 (Source Agreement) の計算
         source_agreement = 1.0
         if source_count > 1:
-            # ツール結果からテキストを抽出
             texts = []
             if isinstance(tool_result.output, list):
                 for item in tool_result.output:
                     if isinstance(item, dict):
                         payload = item.get("payload", {})
-                        # content, text, answer などのフィールドを探す
                         content = payload.get("content") or payload.get("text") or payload.get("answer")
                         if content:
                             texts.append(str(content))
@@ -1040,7 +1034,7 @@ class Executor:
                 try:
                     sa_calc = create_source_agreement_calculator(config=self.config)
                     source_agreement = sa_calc.calculate(texts)
-                    logger.info(f"[_llm_calculate_step_confidence] Calculated source_agreement: {source_agreement:.4f}")
+                    logger.info(f"[confidence] Calculated source_agreement: {source_agreement:.4f}")
                 except Exception as e:
                     logger.warning(f"Failed to calculate source_agreement: {e}")
                     source_agreement = 0.5
@@ -1051,24 +1045,23 @@ class Executor:
         current_avg_score = factors.get("avg_score", 0.0)
 
         # 自身で検索しておらず、かつ推論ステップなどの場合、依存元のスコアを引き継ぐ
-        if current_result_count == 0 and not (step.action in ["rag_search", "web_search"]):
+        if current_result_count == 0 and step.action not in ("rag_search", "web_search"):
             inherited_max = 0.0
             inherited_found = False
             for dep_id in step.depends_on:
                 if dep_id in state.step_results:
                     dep_res = state.step_results[dep_id]
-                    # 依存先の信頼度を継承
                     if dep_res.confidence > inherited_max:
                         inherited_max = dep_res.confidence
                         inherited_found = True
 
             if inherited_found:
-                logger.info(f"[_llm_calculate_step_confidence] Inherited scores from dependency: max={inherited_max}")
+                logger.info(f"[confidence] Inherited scores from dependency: max={inherited_max}")
                 current_max_score = inherited_max
                 current_avg_score = inherited_max
                 current_result_count = 1  # 仮想的に1件あったとみなす
 
-        confidence_factors = ConfidenceFactors(
+        return ConfidenceFactors(
             # RAG検索関連
             search_result_count=current_result_count,
             search_avg_score=current_avg_score,
@@ -1084,6 +1077,21 @@ class Executor:
             # ステップタイプ
             is_search_step=(step.action in ["rag_search", "web_search"])
         )
+
+    def _llm_calculate_step_confidence(
+            self,
+            tool_result: ToolResult,
+            step: PlanStep,
+            state: ExecutionState
+    ) -> float:
+        """
+        LLMを使用したステップ信頼度の計算
+        """
+        if not tool_result.success:
+            return 0.0
+
+        # ConfidenceFactors を構築（共通部・#66）
+        confidence_factors = self._build_confidence_factors(tool_result, step, state)
         logger.info(f"[_llm_calculate_step_confidence] Constructed ConfidenceFactors: {confidence_factors}")
 
         # ConfidenceCalculatorで計算（LLM評価 + Heuristicフォールバック）
@@ -1146,75 +1154,8 @@ class Executor:
         if not tool_result.success:
             return 0.0
 
-        factors = tool_result.confidence_factors
-        logger.info(f"[_calculate_step_confidence] Initial factors: {factors}")
-
-        # ConfidenceFactorsを構築
-        # source_countの決定: ツールが明示的に返した値を優先
-        extracted_sources = self._extract_sources(tool_result)
-        source_count = factors.get("source_count", len(extracted_sources))
-
-        # ソース一致度 (Source Agreement) の計算
-        source_agreement = 1.0
-        if source_count > 1:
-            # ツール結果からテキストを抽出
-            texts = []
-            if isinstance(tool_result.output, list):
-                for item in tool_result.output:
-                    if isinstance(item, dict):
-                        payload = item.get("payload", {})
-                        content = payload.get("content") or payload.get("text") or payload.get("answer")
-                        if content:
-                            texts.append(str(content))
-
-            if len(texts) > 1:
-                try:
-                    sa_calc = create_source_agreement_calculator(config=self.config)
-                    source_agreement = sa_calc.calculate(texts)
-                    logger.info(f"[_calculate_step_confidence] Calculated source_agreement: {source_agreement:.4f}")
-                except Exception as e:
-                    logger.warning(f"Failed to calculate source_agreement: {e}")
-                    source_agreement = 0.5
-
-        # 依存ステップからのスコア継承ロジック
-        current_result_count = factors.get("result_count", 0)
-        current_max_score = factors.get("max_score", factors.get("avg_score", 0.0))
-        current_avg_score = factors.get("avg_score", 0.0)
-
-        # 自身で検索しておらず、かつ推論ステップなどの場合、依存元のスコアを引き継ぐ
-        if current_result_count == 0 and not (step.action in ["rag_search", "web_search"]):
-            inherited_max = 0.0
-            inherited_found = False
-            for dep_id in step.depends_on:
-                if dep_id in state.step_results:
-                    dep_res = state.step_results[dep_id]
-                    # 依存先の信頼度を継承
-                    if dep_res.confidence > inherited_max:
-                        inherited_max = dep_res.confidence
-                        inherited_found = True
-
-            if inherited_found:
-                logger.info(f"[_calculate_step_confidence] Inherited scores from dependency: max={inherited_max}")
-                current_max_score = inherited_max
-                current_avg_score = inherited_max
-                current_result_count = 1  # 仮想的に1件あったとみなす
-
-        confidence_factors = ConfidenceFactors(
-            # RAG検索関連
-            search_result_count=current_result_count,
-            search_avg_score=current_avg_score,
-            search_max_score=current_max_score,
-            search_score_variance=factors.get("score_variance", 1.0),
-            # ソース関連
-            source_count=source_count,
-            source_agreement=source_agreement,
-            # ツール実行関連
-            tool_success_rate=1.0 if tool_result.success else 0.0,
-            tool_execution_count=1,
-            tool_success_count=1 if tool_result.success else 0,
-            # ステップタイプ
-            is_search_step=(step.action in ["rag_search", "web_search"])
-        )
+        # ConfidenceFactors を構築（共通部・#66）
+        confidence_factors = self._build_confidence_factors(tool_result, step, state)
         logger.info(f"[_calculate_step_confidence] Constructed ConfidenceFactors: {confidence_factors}")
 
         # ConfidenceCalculatorで計算
