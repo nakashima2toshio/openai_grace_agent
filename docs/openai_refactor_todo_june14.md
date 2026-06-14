@@ -174,8 +174,8 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [x] #55 make_qa_register_qdrant 死にフラグ＋--combine-rows 撤去 ✅ b72ec9f
 - [x] #54 make_qa.py スマート生成フラグ撤去 ✅ 192bf67
 - [x] #52 use_smart_generation フラグ撤去（celery/pipeline/make_qa）✅ 192bf67
-  - ⚠️ 残: smart_qa_generator.py の 2段(analyze_chunk+generate_qa_pairs)→構造化出力1回の単段化は
-    OpenAI Structured Output 設計＋実機検証が必要なため**保留**（フラグ撤去は完了）
+  - [x] smart_qa_generator.py 単段化（2段→generate_structured 1回・SmartQAResult/SmartQAPair）✅ 01e4374
+    - temperature 非送信(gpt-5系制約)・max_completion_tokens・既存 generate_structured 抽象経由
 - [x] #51 内容ハッシュ ID ＋重複除去＋先読み並列化（3 部）✅ 192bf67
 - [x] #67 collect_results 完了順＋on_result＋_GENERATOR_CACHE ✅ 192bf67
 - [x] #53 JSONL 逐次永続化＋クラッシュ再開 ✅ 192bf67
