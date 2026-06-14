@@ -160,15 +160,15 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 ## 進捗チェックリスト
 
 ### Phase A — grace/
-- [ ] #58 PlannerConfig/ExecutorConfig（最優先・足場）
-- [ ] #56 eval 撤去 → ast.literal_eval
-- [ ] #57 _run_tool_with_timeout
+- [x] #58 PlannerConfig/ExecutorConfig（最優先・足場）✅ 20212cf
+- [x] #56 eval 撤去 → ast.literal_eval ✅ 20212cf
+- [x] #57 _run_tool_with_timeout ✅ fbf2e4e
 - [ ] #60 _prefetch_parallel_searches
-- [ ] #61 二層計画（_create_rule_based_plan）
-- [ ] #64 _should_trigger_replan（検索ステップ限定）
+- [x] #61 二層計画（_create_rule_based_plan）✅ 8df0460
+- [x] #64 _should_trigger_replan（検索ステップ限定）✅ b62ddc8
 - [ ] #65 evaluate_final（FinalEvaluationResult）
 - [ ] #66 _build_confidence_factors 共通化
-- [x] #59 実行ループ統合（DONE）
+- [x] #59 実行ループ統合（薄いラッパー化で二重ループ解消）✅ b62ddc8
 
 ### Phase B — 登録・Q/A・パイプライン
 - [ ] #55 make_qa_register_qdrant 死にフラグ＋--combine-rows 撤去
@@ -205,7 +205,7 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 ### Phase G — 不足ファイル・整合性整理（フォルダー照合で追加）
 - [ ] G1 qdrant_delete_collection.py 移植（低優先）
 - [ ] G2 ui/pages/benchmark_page.py 移植
-- [ ] G3 残存 gpt-5.4-mini → gpt-5-mini 統一（要ユーザー確認）
+- [x] G3 残存 gpt-5.4-mini → gpt-5-mini 統一 ✅ 9dcfece
 - [ ] G4 未使用 import 整理（低優先）
 
 ---
