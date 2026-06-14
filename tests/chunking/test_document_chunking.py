@@ -40,9 +40,9 @@ class FakeAPIClient:
         self.step3_calls = 0
 
     async def generate_content(self, model, contents, response_schema, task_id=None, system=None):
-        # 実装は contents=f"{PROMPT}\n\n【入力テキスト】\n{text}" を渡すため、
-        # 入力テキスト本文（最後の「【入力テキスト】」以降）を取り出して段落として返す
-        body = contents.rsplit("【入力テキスト】", 1)[-1].strip()
+        # 実装は指示文を system へ、contents=f"【入力テキスト】\n{text}" を渡す
+        # （anthropic/ollama と同パターン）ため、先頭行除去で入力本文を取り出す
+        body = contents.split("\n", 1)[1] if "\n" in contents else contents
         if task_id.startswith("step3"):
             self.step3_calls += 1
             return json.dumps({"is_connected": True})

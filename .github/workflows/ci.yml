@@ -58,6 +58,39 @@ jobs:
         run: python -m compileall -q -x '\.venv|/old_code/|/\.git/' .
 
   # --------------------------------------------------------------------------
+  # ユニットテスト（pytest）: モックベースのユニットテストを実行する。
+  #   - 実 OpenAI/Qdrant 依存の統合テストは OPENAI_API_KEY が未設定（または
+  #     "test-api-key"）のとき各テストの skipif で自動 skip される。
+  #   - 現状は advisory（auto-merge の needs に含めない）。安定して緑になったら
+  #     build と同様に blocking 化し auto-merge の needs に加えること。
+  # --------------------------------------------------------------------------
+  unit-tests:
+    name: pytest (unit, integration skipped)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # 安定するまでは advisory（マージをブロックしない）
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # テスト実行に必要な依存。重い完全再現が必要なら -r requirements.txt に切替。
+          pip install pytest pytest-asyncio pydantic pandas numpy \
+            qdrant-client tiktoken scikit-learn pyyaml python-dotenv openai celery
+
+      - name: Run unit tests (integration auto-skipped)
+        env:
+          # 実APIキーを設定しない → 統合テストは skipif で自動 skip
+          PYTHONPATH: .
+        run: pytest tests/ -q -rs
+
+  # --------------------------------------------------------------------------
   # 自動マージ: claude/* ブランチの PR を CI 成功後に master へマージ
   # --------------------------------------------------------------------------
   auto-merge:
