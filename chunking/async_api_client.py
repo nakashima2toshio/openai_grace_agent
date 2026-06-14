@@ -14,7 +14,7 @@
   - response.text (JSON文字列) → response.choices[0].message.parsed (Pydanticインスタンス)
   - api_key: GOOGLE_API_KEY → OPENAI_API_KEY
   - 不完全JSON検出・finish_reason チェック → max_completion_tokens超過検出に変更
-  - max_tokens → max_completion_tokens（gpt-5.4-mini以降の仕様変更に対応）
+  - max_tokens → max_completion_tokens（gpt-5-mini以降の仕様変更に対応）
 """
 
 import asyncio
@@ -106,7 +106,7 @@ class AsyncAPIClient:
                 # [MIGRATION] asyncio.to_thread で同期APIを非同期実行
                 # Gemini: client.models.generate_content(model, contents, config=GenerateContentConfig(...))
                 # OpenAI: client.beta.chat.completions.parse(model, messages, response_format=PydanticClass)
-                # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens を使用する
+                # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens を使用する
                 response = await asyncio.to_thread(
                     self.client.beta.chat.completions.parse,
                     model=model,

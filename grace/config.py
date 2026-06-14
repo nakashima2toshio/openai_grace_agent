@@ -57,9 +57,9 @@ logger = logging.getLogger(__name__)
 class LLMConfig(BaseModel):
     """LLM設定"""
     # [MIGRATION anthropic→openai] provider: "anthropic" → "openai"
-    # [MIGRATION anthropic→openai] model: "claude-sonnet-4-6" → "gpt-5.4-mini"（デフォルト）
+    # [MIGRATION anthropic→openai] model: "claude-sonnet-4-6" → "gpt-5-mini"（デフォルト）
     provider: str = "openai"
-    model: str = "gpt-5.4-mini"
+    model: str = "gpt-5-mini"
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 30

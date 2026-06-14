@@ -195,7 +195,7 @@ class LLMClient(ABC):
 # ================================================================
 
 class OpenAIClient(LLMClient):
-    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-5.4-mini"):
+    def __init__(self, api_key: Optional[str] = None, default_model: str = "gpt-5-mini"):
         if not OpenAI:
             raise ImportError("openai package is not installed.")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -207,7 +207,7 @@ class OpenAIClient(LLMClient):
     def generate_content(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         model = model or self.default_model
         messages = [{"role": "user", "content": prompt}]
-        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
@@ -222,7 +222,7 @@ class OpenAIClient(LLMClient):
     ) -> BaseModel:
         model = model or self.default_model
         messages = [{"role": "user", "content": prompt}]
-        # [FIX] gpt-5.4-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
+        # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         response = self.client.beta.chat.completions.parse(
@@ -748,7 +748,7 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:  # [MIGR
         text = llm.generate_content("こんにちは")
 
         # モデル指定
-        llm = create_llm_client("openai", default_model="gpt-5.4-mini")
+        llm = create_llm_client("openai", default_model="gpt-5-mini")
 
         # anthropic_grace_agent（後方互換）
         llm = create_llm_client("anthropic")

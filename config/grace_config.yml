@@ -1,12 +1,12 @@
 # grace_config.yml
 # [MIGRATION] 2026-05-05 Gemini → OpenAI 移植対応
-# 変更: llm.provider "gemini" → "openai", model "gemini-3-flash-preview" → "gpt-5.4-mini"
+# 変更: llm.provider "gemini" → "openai", model "gemini-3-flash-preview" → "gpt-5-mini"
 # 変更: embedding.provider "gemini" → "openai"
 
 # LLM設定
 llm:
   provider: "openai"                # [MIGRATION] "gemini" → "openai"
-  model: "gpt-5.4-mini"            # [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
+  model: "gpt-5-mini"            # [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
   temperature: 0.7
   max_tokens: 4096
   timeout: 30

@@ -413,7 +413,7 @@ class GeminiConfig:
 
     # 利用可能なモデル一覧 [MIGRATION] Gemini → OpenAI
     AVAILABLE_MODELS: List[str] = [
-        "gpt-5.4-mini",        # デフォルト推奨（最新・高速）
+        "gpt-5-mini",        # デフォルト推奨（最新・高速）
         "gpt-4o-mini",         # 高速・低コスト
         "gpt-4o",              # 最高性能
         "gpt-4.1",             # GPT-4.1
@@ -421,8 +421,8 @@ class GeminiConfig:
         "o1-mini",             # 推論特化
     ]
 
-    # デフォルトモデル [MIGRATION] "gemini-3-flash-preview" → "gpt-5.4-mini"
-    DEFAULT_MODEL: str = "gpt-5.4-mini"
+    # デフォルトモデル [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
+    DEFAULT_MODEL: str = "gpt-5-mini"
 
     # Embeddingモデル
     EMBEDDING_MODEL: str = "gemini-embedding-001"

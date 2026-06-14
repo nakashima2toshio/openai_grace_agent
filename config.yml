@@ -14,8 +14,8 @@
 # LLM モデル設定
 # =====================================================
 models:
-  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-5.4-mini"
-  default: "gpt-5.4-mini"
+  # [MIGRATION anthropic→openai] "claude-sonnet-4-6" → "gpt-5-mini"
+  default: "gpt-5-mini"
   available:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
     - "gpt-4o-mini"               # デフォルト推奨（コスト効率）
@@ -84,7 +84,7 @@ model_pricing:
 # =====================================================
 openai:
   # LLM設定
-  default_model: "gpt-5.4-mini"
+  default_model: "gpt-5-mini"
   available_models:
     - "gpt-4o"                    # 最高性能・複雑タスク向け
     - "gpt-4o-mini"               # 旧デフォルト（コスト効率）

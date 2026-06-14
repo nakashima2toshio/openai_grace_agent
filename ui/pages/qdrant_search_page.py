@@ -415,7 +415,7 @@ def show_qdrant_search_page():
                         llm_client = create_llm_client(provider="openai")
                         generated_answer = llm_client.generate_content(
                             prompt=qa_prompt,
-                            model="gpt-5.4-mini"
+                            model="gpt-5-mini"
                         )
 
                     if generated_answer and generated_answer.strip():

@@ -16,7 +16,7 @@ set -euo pipefail
 
 COLLECTION="cc_news_2per_openai"
 PROJECT="openai_grace_agent"
-MODEL="gpt-5.4-mini"
+MODEL="gpt-5-mini"
 
 echo "================================================================"
 echo "  GRACE Benchmark Runner"

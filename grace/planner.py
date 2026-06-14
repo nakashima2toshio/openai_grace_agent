@@ -7,7 +7,7 @@ GRACE Planner - 計画生成エージェント
     - AnthropicClient → OpenAIClient (via create_llm_client)
     - create_llm_client("anthropic") → create_llm_client("openai")
     - response_schema=ExecutionPlan → generate_structured() で Structured Outputs に代替
-    - max_tokens → max_completion_tokens（gpt-5.4-mini以降の仕様変更）
+    - max_tokens → max_completion_tokens（gpt-5-mini以降の仕様変更）
     - AFC関連バグ回避コードを削除（Anthropic では不要）
 """
 
@@ -194,7 +194,7 @@ class Planner:
                         prompt=prompt,
                         response_schema=ExecutionPlan,
                         model=self.model_name,
-                        max_completion_tokens=8192,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                        max_completion_tokens=8192,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                         system="You are an expert planning agent. Always respond using the provided tool.",
                         temperature=self.config.llm.temperature,
                     )
@@ -381,7 +381,7 @@ class Planner:
             complexity_str = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=0.1,
             )
 
@@ -441,7 +441,7 @@ class Planner:
                 prompt=refine_prompt,
                 response_schema=ExecutionPlan,
                 model=self.model_name,
-                max_completion_tokens=4096,  # [FIX] gpt-5.4-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=4096,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
                 temperature=self.config.llm.temperature,
             )
 
