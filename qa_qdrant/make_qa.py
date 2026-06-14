@@ -3,12 +3,13 @@
 """
 make_qa.py - Q/Aペア生成 CLIエントリーポイント（v3.0 - pipeline.py v3.0対応版）
 
-改修内容 (v3.0):
+改修内容 (v3.1):
 - pipeline.py v3.0（チャンク処理削除版）に対応
 - --input-chunks 引数を削除（--input-file に統一）
 - チャンク関連引数を削除（--merge-chunks, --min-tokens, --max-tokens, --overlap-tokens, --use-similarity, --similarity-threshold）
 - -c, --concurrency 引数を追加
-- --use-smart-generation / --no-smart-generation 引数を追加
+- Q/A生成を SmartQAGenerator（構造化出力1回）に一本化
+- 死んでいた --use-smart-generation / --no-smart-generation を削除
 
 前提条件:
 - 入力CSVは既にチャンク済み（csv_text_to_chunks_text_csv.py で処理済み）
@@ -19,7 +20,6 @@ make_qa.py - Q/Aペア生成 CLIエントリーポイント（v3.0 - pipeline.py
     --input-file output_chunked/data_chunks.csv \
     --use-celery \
     -c 8 \
-    --use-smart-generation \
     --analyze-coverage
 
   # 同期処理（Celery不使用）
@@ -144,19 +144,7 @@ def main():
         type=int,
         default=3,
         choices=[1, 2, 3, 4, 5],
-        help="1回のAPIで処理するチャンク数（デフォルト: 3）"
-    )
-    parser.add_argument(
-        "--use-smart-generation",
-        action="store_true",
-        default=True,
-        help="スマートQ/A生成を使用（LLMによる動的Q/A数決定、デフォルト有効）"
-    )
-    parser.add_argument(
-        "--no-smart-generation",
-        dest="use_smart_generation",
-        action="store_false",
-        help="従来方式のQ/A生成を使用（トークン数ベース）"
+        help="(非推奨・未使用) 1チャンク=1タスクで処理される"
     )
 
     # ================================================================
@@ -219,11 +207,7 @@ def main():
 
     logger.info(f"モデル: {args.model}")
     logger.info(f"出力ディレクトリ: {args.output}")
-
-    if args.use_smart_generation:
-        logger.info("Q/A生成モード: スマート生成（LLMによる動的Q/A数決定）")
-    else:
-        logger.info("Q/A生成モード: 従来方式（トークン数ベース）")
+    logger.info("Q/A生成モード: SmartQAGenerator（構造化出力1回/チャンク）")
 
     if args.use_celery:
         logger.info(f"並列処理: Celery（並列タスク数: {args.concurrency}）")
@@ -253,8 +237,7 @@ def main():
             concurrency=args.concurrency,
             batch_chunks=args.batch_chunks,
             analyze_coverage=args.analyze_coverage,
-            coverage_threshold=args.coverage_threshold,
-            use_smart_generation=args.use_smart_generation
+            coverage_threshold=args.coverage_threshold
         )
 
         # ================================================================

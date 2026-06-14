@@ -26,12 +26,11 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   )
   result = pipeline.run(
       use_celery=True,
-      concurrency=8,
-      use_smart_generation=True
+      concurrency=8
   )
 """
 
-import sys
+import json
 import logging
 from typing import List, Dict, Optional, Any
 import pandas as pd
@@ -42,6 +41,17 @@ from helper.helper_llm import LLMClient
 from qa_generation.smart_qa_generator import SmartQAGenerator
 from qa_generation.evaluation import analyze_coverage
 from celery_tasks import submit_unified_qa_generation, collect_results, check_celery_workers
+
+# トークン集計（同期実行時のみ。Celery経路はワーカープロセス側で消費されるため対象外）
+try:
+    from helper.helper_llm import (
+        LLM_PRICING as _LLM_PRICING,
+        get_token_counter as _get_token_counter,
+        reset_token_counter as _reset_token_counter,
+    )
+    _TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    _TOKEN_TRACKING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +90,9 @@ class QAPipeline:
         # SmartQAGeneratorの初期化
         self.smart_generator = SmartQAGenerator(model=model)
         logger.info(f"SmartQAGenerator初期化完了 (model={model})")
+
+        # Celeryワーカー側トークン使用量の集計先（collect_results が加算する）
+        self._celery_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
 
     def _validate_inputs(self):
         """入力パラメータの検証"""
@@ -213,41 +226,113 @@ class QAPipeline:
         logger.info(f"  ✅ チャンク変換完了: {len(chunks)} チャンク")
         return chunks
 
+    # ================================================================
+    # 逐次永続化（クラッシュ時の全損防止・再開用）
+    # ================================================================
+
+    def _progress_path(self) -> Path:
+        """チャンク単位の処理結果を逐次追記する JSONL のパス"""
+        dataset_type = self.config.get("type", "unknown")
+        return Path(self.output_dir) / f"qa_progress_{dataset_type}.jsonl"
+
+    def _load_progress(self) -> Dict[str, List[Dict]]:
+        """逐次保存ファイルから処理済みチャンクの結果を読み込む"""
+        path = self._progress_path()
+        if not path.exists():
+            return {}
+
+        progress: Dict[str, List[Dict]] = {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        progress[str(record["chunk_id"])] = record.get("qa_pairs", [])
+                    except (json.JSONDecodeError, KeyError):
+                        # 途中クラッシュで壊れた行はスキップ（その行のチャンクは再処理される）
+                        continue
+        except OSError as e:
+            logger.warning(f"逐次保存ファイルの読み込みに失敗: {e}")
+            return {}
+
+        return progress
+
+    def _append_progress(self, chunk_id: Any, qa_pairs: List[Dict]) -> None:
+        """チャンク1件分の結果を JSONL に追記する（qa_count=0 も記録して再処理を防ぐ）"""
+        path = self._progress_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {"chunk_id": str(chunk_id), "qa_pairs": qa_pairs}
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _clear_progress(self) -> None:
+        """最終保存の完了後に逐次保存ファイルを削除する"""
+        path = self._progress_path()
+        try:
+            if path.exists():
+                path.unlink()
+                logger.info(f"  逐次保存ファイルを削除: {path}")
+        except OSError as e:
+            logger.warning(f"逐次保存ファイルの削除に失敗: {e}")
+
     def generate_qa(self, chunks: List[Dict],
                     use_celery: bool = False,
                     celery_workers: int = 1,
                     concurrency: int = 8,
-                    batch_chunks: int = 3,
-                    use_smart_generation: bool = True) -> List[Dict]:
+                    batch_chunks: int = 3) -> List[Dict]:
         """Q/Aペアを生成する
+
+        チャンクごとの結果は qa_progress_*.jsonl に逐次追記され、
+        プロセスが途中で落ちても再実行時に処理済みチャンクをスキップして再開できる。
+
+        Q/A生成は SmartQAGenerator（構造化出力1回）に一本化されている。
 
         Args:
             chunks: チャンクのリスト
             use_celery: Celery並列処理を使用するか
             celery_workers: Celeryワーカープロセス数チェック用（デフォルト: 1）
             concurrency: 並列タスク数（デフォルト: 8）
-            batch_chunks: 1回のAPIで処理するチャンク数
-            use_smart_generation: スマートQ/A生成を使用するか（常にTrue推奨）
+            batch_chunks: (非推奨・未使用) 旧バッチ処理用。1チャンク=1タスクで処理される
         """
         logger.info("\n[3/3] Q/Aペア生成...")
-
-        # スマート生成モードのログ出力
-        mode_name = "スマート生成" if use_smart_generation else "従来方式"
-        logger.info(f"  生成モード: {mode_name}")
+        logger.info("  生成モード: SmartQAGenerator（構造化出力1回/チャンク）")
         logger.info(f"  処理チャンク数: {len(chunks)}")
 
+        # 逐次保存ファイルからの再開
+        progress = self._load_progress()
+        prior_pairs: List[Dict] = []
+        if progress:
+            done_ids = set(progress.keys())
+            pending = [c for c in chunks if str(c.get('id')) not in done_ids]
+            skipped = len(chunks) - len(pending)
+            if skipped:
+                prior_pairs = [qa for pairs in progress.values() for qa in pairs]
+                logger.info(
+                    f"  📂 逐次保存ファイルから再開: 処理済み {skipped} チャンクをスキップ "
+                    f"（復元Q/A: {len(prior_pairs)}件, 残り: {len(pending)}チャンク）"
+                )
+            chunks = pending
+
+        if not chunks:
+            logger.info("  全チャンク処理済み（逐次保存ファイルから復元）")
+            return prior_pairs
+
         if use_celery:
-            return self._generate_with_celery(
-                chunks, celery_workers, concurrency, batch_chunks, use_smart_generation
+            new_pairs = self._generate_with_celery(
+                chunks, celery_workers, concurrency, batch_chunks
             )
         else:
-            return self._generate_sync(chunks, batch_chunks, use_smart_generation)
+            new_pairs = self._generate_sync(chunks, batch_chunks)
+
+        return prior_pairs + new_pairs
 
     def _generate_with_celery(self, chunks: List[Dict],
                               workers: int,
                               concurrency: int,
-                              batch_size: int,
-                              use_smart_generation: bool) -> List[Dict]:
+                              batch_size: int) -> List[Dict]:
         """Celeryを使用した非同期生成
 
         Args:
@@ -255,7 +340,6 @@ class QAPipeline:
             workers: ワーカープロセス数チェック用
             concurrency: 並列タスク数
             batch_size: バッチサイズ
-            use_smart_generation: スマートQ/A生成を使用するか
         """
         logger.info(f"  Celery並列処理モード:")
         logger.info(f"    - ワーカープロセス数チェック: {workers}")
@@ -265,24 +349,36 @@ class QAPipeline:
         if not check_celery_workers(workers):
             raise RuntimeError("Celery workers are not running")
 
-        # use_smart_generationをCeleryタスクに渡す
+        # モデル名からプロバイダーを自動判定
+        if self.model.startswith("claude"):
+            _provider = "anthropic"
+        elif self.model.startswith("gemini"):
+            _provider = "gemini"
+        else:
+            _provider = "openai"  # [MIGRATION] gpt-* は openai
         tasks = submit_unified_qa_generation(
-            chunks, self.config, self.model, provider="openai",  # [MIGRATION] "anthropic" → "openai"
-            use_smart_generation=use_smart_generation
+            chunks, self.config, self.model, provider=_provider
         )
+
+        # 逐次永続化: タスク完了ごとにチャンク結果を JSONL へ追記
+        def _persist(task_index: int, qa_pairs: List[Dict]) -> None:
+            chunk_id = chunks[task_index].get('id', f'chunk_{task_index}')
+            self._append_progress(chunk_id, qa_pairs)
 
         timeout_seconds = min(max(len(tasks) * 10, 600), 1800)
         logger.info(f"  結果収集タイムアウト: {timeout_seconds}秒（{len(tasks)}タスク）")
-        return collect_results(tasks, timeout=timeout_seconds)
+        # ワーカー側のトークン使用量を集約（run() のコストサマリーで使用）
+        return collect_results(
+            tasks, timeout=timeout_seconds, on_result=_persist,
+            usage_out=self._celery_usage,
+        )
 
-    def _generate_sync(self, chunks: List[Dict], batch_size: int,
-                       use_smart_generation: bool) -> List[Dict]:
+    def _generate_sync(self, chunks: List[Dict], batch_size: int) -> List[Dict]:
         """同期生成（SmartQAGenerator使用）
 
         Args:
             chunks: チャンクのリスト
             batch_size: バッチサイズ（現在は未使用、将来の拡張用）
-            use_smart_generation: スマートQ/A生成を使用するか（常にTrue推奨）
 
         Returns:
             Q/Aペアのリスト
@@ -306,18 +402,24 @@ class QAPipeline:
                 # SmartQAGeneratorでQ/A生成
                 result = self.smart_generator.process_chunk(chunk_text)
 
+                chunk_pairs = []
                 if result['success'] and result['qa_pairs']:
                     for qa in result['qa_pairs']:
-                        all_qa_pairs.append({
+                        chunk_pairs.append({
                             'question': qa['question'],
                             'answer': qa['answer'],
                             'chunk_id': chunk_id,
                             'topic': qa.get('topic', ''),
                             'dataset_type': chunk.get('dataset_type', 'unknown')
                         })
-                    logger.info(f"      → {len(result['qa_pairs'])} Q/A生成")
+                    all_qa_pairs.extend(chunk_pairs)
+                    logger.info(f"      → {len(chunk_pairs)} Q/A生成")
                 else:
-                    logger.warning(f"      → Q/A生成なし（qa_count=0 または失敗）")
+                    logger.warning("      → Q/A生成なし（qa_count=0 または失敗）")
+
+                # 逐次永続化（qa_count=0 も記録して再処理を防ぐ）
+                if result['success']:
+                    self._append_progress(chunk_id, chunk_pairs)
 
             except Exception as e:
                 logger.error(f"      → エラー: {e}")
@@ -348,8 +450,7 @@ class QAPipeline:
             concurrency: int = 8,
             batch_chunks: int = 3,
             analyze_coverage: bool = True,
-            coverage_threshold: Optional[float] = None,
-            use_smart_generation: bool = True):
+            coverage_threshold: Optional[float] = None):
         """
         パイプライン実行
 
@@ -357,10 +458,9 @@ class QAPipeline:
             use_celery: Celery並列処理を使用するか
             celery_workers: Celeryワーカープロセス数チェック用（デフォルト: 1）
             concurrency: 並列タスク数（デフォルト: 8）
-            batch_chunks: 1回のAPIで処理するチャンク数
+            batch_chunks: (非推奨・未使用) 旧バッチ処理用。1チャンク=1タスクで処理される
             analyze_coverage: カバレージ分析を実行するか
             coverage_threshold: カバレージ判定の類似度閾値
-            use_smart_generation: スマートQ/A生成を使用するか（デフォルト: True）
 
         Returns:
             Dict: 実行結果
@@ -376,6 +476,9 @@ class QAPipeline:
             logger.info("=" * 60)
             logger.info("Q/A生成パイプライン（チャンク済みCSV専用）")
             logger.info("=" * 60)
+
+            if _TOKEN_TRACKING_AVAILABLE and not use_celery:
+                _reset_token_counter()
 
             # ================================================================
             # データ読み込み
@@ -398,8 +501,7 @@ class QAPipeline:
                 use_celery,
                 celery_workers,
                 concurrency,
-                batch_chunks,
-                use_smart_generation
+                batch_chunks
             )
 
             if not qa_pairs:
@@ -424,6 +526,9 @@ class QAPipeline:
             # ================================================================
             saved_files = self.save(qa_pairs, coverage_results)
 
+            # 最終保存が完了したため逐次保存ファイル（再開用）を削除
+            self._clear_progress()
+
             # ================================================================
             # 完了サマリー
             # ================================================================
@@ -435,6 +540,28 @@ class QAPipeline:
             logger.info(f"  生成Q/A数: {len(qa_pairs)}")
             if analyze_coverage:
                 logger.info(f"  カバレージ率: {coverage_results.get('coverage_rate', 0):.1%}")
+
+            # トークン/コストサマリー
+            # - 同期実行: helper_llm のプロセス内カウンタから取得
+            # - Celery実行: 各ワーカータスクが返す usage を collect_results が
+            #   self._celery_usage に集約したものを使用（旧実装はCelery経路で
+            #   コストが常に不明だった）
+            in_tok = out_tok = 0
+            source_label = ""
+            if use_celery:
+                in_tok = self._celery_usage.get("input_tokens", 0)
+                out_tok = self._celery_usage.get("output_tokens", 0)
+                source_label = "（ワーカー集計）"
+            elif _TOKEN_TRACKING_AVAILABLE:
+                counter = _get_token_counter()
+                in_tok = counter.get("input_tokens", 0)
+                out_tok = counter.get("output_tokens", 0)
+
+            if (in_tok or out_tok) and _TOKEN_TRACKING_AVAILABLE:
+                pricing = _LLM_PRICING.get(self.model, {"input": 0.0, "output": 0.0})
+                cost = in_tok * pricing["input"] / 1000 + out_tok * pricing["output"] / 1000
+                logger.info(f"  トークン{source_label}: 入力={in_tok:,}, 出力={out_tok:,}")
+                logger.info(f"  概算コスト: ${cost:.4f} (model={self.model})")
             logger.info("=" * 60)
 
             # 返り値
