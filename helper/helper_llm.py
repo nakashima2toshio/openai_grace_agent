@@ -64,6 +64,20 @@ def get_token_counter() -> Dict[str, int]:
     return dict(_token_accumulator)
 
 
+def _drop_unsupported_temperature(model: Optional[str], params: Dict[str, Any]) -> None:
+    """gpt-5 系モデルはデフォルト(1)以外の temperature を非対応。
+
+    gpt-5 系（gpt-5 / gpt-5-mini / gpt-5-nano 等）にデフォルト以外の
+    temperature を渡すと API が 400 unsupported_value を返すため、
+    非デフォルト値が指定されている場合は params から削除してデフォルトに委ねる。
+    モデル名のマッピングや変換は一切行わない（CLAUDE.md 準拠）。
+    """
+    if not model or not str(model).startswith("gpt-5"):
+        return
+    if params.get("temperature", 1) != 1:
+        params.pop("temperature", None)
+
+
 # ================================================================
 # LLM モデル設定
 # ================================================================
@@ -229,6 +243,9 @@ class OpenAIClient(LLMClient):
         # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        # [FIX] gpt-5 系はデフォルト(1)以外の temperature を非対応（400 unsupported_value）。
+        # 非デフォルト値が渡された場合は drop してデフォルトに委ねる
+        _drop_unsupported_temperature(model, kwargs)
         response = self.client.chat.completions.create(model=model, messages=messages, **kwargs)
         if getattr(response, "usage", None):
             _token_accumulator["input_tokens"]  += response.usage.prompt_tokens     or 0
@@ -252,6 +269,8 @@ class OpenAIClient(LLMClient):
         # [FIX] gpt-5-mini 以降は max_tokens が廃止。max_completion_tokens に自動変換する
         if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        # [FIX] gpt-5 系はデフォルト(1)以外の temperature を非対応（400 unsupported_value）
+        _drop_unsupported_temperature(model, kwargs)
         response = self.client.beta.chat.completions.parse(
             model=model,
             messages=messages,
@@ -330,6 +349,8 @@ class OpenAIClient(LLMClient):
 
         if "temperature" in kwargs:
             create_kwargs["temperature"] = kwargs["temperature"]
+        # [FIX] gpt-5 系はデフォルト(1)以外の temperature を非対応（400 unsupported_value）
+        _drop_unsupported_temperature(model_name, create_kwargs)
 
         response = self.client.chat.completions.create(**create_kwargs)
         if getattr(response, "usage", None):
