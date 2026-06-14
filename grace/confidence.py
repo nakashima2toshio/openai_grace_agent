@@ -504,7 +504,7 @@ class LLMSelfEvaluator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=512,  # gpt-5系は推論トークンを先に消費するため十分な枠が必要（anthropic基準=512）
                 temperature=0.0,
             )
 
@@ -605,7 +605,7 @@ class LLMSelfEvaluator:
                 prompt=prompt,
                 response_schema=EvaluationResult,
                 model=self.model_name,
-                max_completion_tokens=200,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=1024,  # gpt-5系は推論トークンを先に消費するため十分な枠が必要（anthropic基準=1024）
                 temperature=0.0,
                 system="You are an AI agent monitor. Evaluate the step result and return structured JSON.",
             )
@@ -822,7 +822,7 @@ class QueryCoverageCalculator:
             text = self.llm.generate_content(
                 prompt=prompt,
                 model=self.model_name,
-                max_completion_tokens=10,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+                max_completion_tokens=512,  # gpt-5系は推論トークンを先に消費するため十分な枠が必要（anthropic基準=512）
                 temperature=0.0,
             )
 

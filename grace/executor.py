@@ -909,14 +909,20 @@ class Executor:
             llm = create_llm_client("openai", default_model=self.config.llm.model)
             t0 = _time.time()
 
-            # temperature=0.0, max_tokens=5 で YES/NO のみ返させる
-            answer = llm.generate_content(
+            # YES/NO のみ返させる。gpt-5系は推論モデルで出力枠をまず推論トークンに消費するため、
+            # max_completion_tokens=5 では本文が空になる。十分な枠を確保する。
+            answer = (llm.generate_content(
                 prompt=prompt,
                 temperature=0.0,
-                max_completion_tokens=5,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
-            ).strip().upper()
+                max_completion_tokens=256,
+            ) or "").strip().upper()
 
             elapsed = _time.time() - t0
+            if not answer:
+                # 推論モデルが出力枠を使い切る等で空応答になった場合は判定不能とみなし、
+                # 例外時と同じく既存動作（スコアのみで判定＝適合扱い）を維持して True を返す。
+                logger.warning("RAG relevance check returned empty answer, defaulting to True")
+                return True
             is_relevant = "YES" in answer
             logger.info(
                 f"RAG relevance check: '{answer}' -> {is_relevant} ({elapsed:.1f}s)"
