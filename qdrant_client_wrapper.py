@@ -21,7 +21,6 @@ from typing import Dict, List, Optional, Any, Tuple, Iterable
 from datetime import datetime, timezone
 
 import pandas as pd
-import tiktoken
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse

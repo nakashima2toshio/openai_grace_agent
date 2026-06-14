@@ -16,7 +16,7 @@ Q/Aペア生成で使用するデータモデルを定義
 - helper_rag_qa.py::QAGenerationConsiderations
 """
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
 

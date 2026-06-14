@@ -546,7 +546,6 @@ class LLMSelfEvaluator:
         Returns:
             Dict: {"score": float, "reason": str}
         """
-        import json
 
         prompt = f"""
 あなたはAIエージェントの実行監視役です。
@@ -617,7 +616,7 @@ class LLMSelfEvaluator:
             logger.error(f"evaluate_with_factors failed: {e}")
             if factors.search_max_score > 0:
                 logger.info(f"Fallback to search_max_score: {factors.search_max_score:.4f}")
-                return {"score": factors.search_max_score, "reason": f"LLM evaluation failed, using search score"}
+                return {"score": factors.search_max_score, "reason": "LLM evaluation failed, using search score"}
             return {"score": 0.5, "reason": f"Evaluation error: {str(e)}"}
 
     FINAL_EVAL_PROMPT = """以下の【質問】に対する【回答】を2つの観点で評価し、JSON形式で出力してください。

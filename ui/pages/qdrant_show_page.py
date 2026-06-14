@@ -26,7 +26,6 @@ from services.qdrant_service import (
     QdrantDataFetcher,
     QDRANT_CONFIG,
     merge_collections,
-    get_collection_stats,
     get_all_collections,  # 追加
 )
 

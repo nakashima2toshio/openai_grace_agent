@@ -8,15 +8,13 @@ Rankの無効化：
     reranked_results = rerank_results(query, candidates, top_k=AgentConfig.RAG_SEARCH_LIMIT)
 """
 
-import os
 import time
-import json
 import logging
 from typing import List, Optional, Dict, Any, Union
 from dataclasses import dataclass, field
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
-from qdrant_client_wrapper import search_collection, embed_query, embed_sparse_query_unified, QDRANT_CONFIG, get_qdrant_client
+from qdrant_client_wrapper import search_collection, embed_query, embed_sparse_query_unified, get_qdrant_client
 from config import AgentConfig, CohereConfig
 
 # キャッシュと並列検索のインポート
@@ -171,7 +169,6 @@ def filter_results_by_keywords(results: List[Dict[str, Any]], query: str) -> Lis
     検索結果をクエリのキーワードでフィルタリングする（共通ロジック）
     Legacy Agentと同じく、スペース区切りのトークンを必須キーワードとして扱う。
     """
-    import re
 
     # 必須キーワードの抽出（Legacyと同一ロジック: スペース区切り）
     tokens = query.split()
@@ -316,7 +313,7 @@ def search_rag_knowledge_base(
     start_time = time.time()
     hybrid_status = "有効 (Sparse+Dense)" if use_hybrid_search else "無効 (Denseのみ)"
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🔍 全コレクション検索開始")
+    logger.info("🔍 全コレクション検索開始")
     logger.info(f"   Query: '{query}'")
     logger.info(f"   Hybrid Search: {hybrid_status}")
     logger.info(f"   コサイン類似度閾値: {COSINE_SIMILARITY_THRESHOLD}")
@@ -543,7 +540,7 @@ def search_rag_knowledge_base_cached(
     # ★変更: ログにハイブリッド検索の状態を追加
     hybrid_status = "有効 (Sparse+Dense)" if use_hybrid_search else "無効 (Denseのみ)"
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🔍 スマート検索開始")
+    logger.info("🔍 スマート検索開始")
     logger.info(f"   Query: '{query}'")
     logger.info(f"   Session: {session_id}")
     logger.info(f"   Hybrid Search: {hybrid_status}")  # ★追加
@@ -622,9 +619,9 @@ def search_rag_knowledge_base_cached(
             else:
                 logger.info(f"⚠️ キャッシュ検索のスコアが低い: {top_score:.3f} → 全検索に移行")
         else:
-            logger.info(f"⚠️ キャッシュ検索で結果なし → 全検索に移行")
+            logger.info("⚠️ キャッシュ検索で結果なし → 全検索に移行")
     else:
-        logger.info(f"🆕 キャッシュなし → 全検索実行")
+        logger.info("🆕 キャッシュなし → 全検索実行")
 
     # ステップ3: 全コレクション並列検索
     try:

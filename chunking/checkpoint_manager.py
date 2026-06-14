@@ -9,7 +9,7 @@ import json
 import os
 import shutil
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional
 import logging
 
 logger = logging.getLogger(__name__)

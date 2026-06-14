@@ -7,12 +7,12 @@ GRACE Intervention - HITL（Human-in-the-Loop）介入システム
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional, List, Callable, Any, Literal, Dict
+from typing import Optional, List, Callable, Any, Dict
 from enum import Enum
 from datetime import datetime
 
 from .schemas import ExecutionPlan, PlanStep
-from .confidence import InterventionLevel, ConfidenceScore, ActionDecision
+from .confidence import InterventionLevel, ActionDecision
 from .config import get_config, GraceConfig
 
 logger = logging.getLogger(__name__)
@@ -237,13 +237,13 @@ class InterventionHandler:
     def _handle_timeout(self, request: InterventionRequest) -> InterventionResponse:
         """タイムアウト処理"""
         if self.config.intervention.auto_proceed_on_timeout:
-            logger.warning(f"Intervention timeout, auto-proceeding")
+            logger.warning("Intervention timeout, auto-proceeding")
             return InterventionResponse(
                 action=InterventionAction.PROCEED,
                 timeout_reached=True
             )
         else:
-            logger.warning(f"Intervention timeout, cancelling")
+            logger.warning("Intervention timeout, cancelling")
             return InterventionResponse(
                 action=InterventionAction.CANCEL,
                 timeout_reached=True

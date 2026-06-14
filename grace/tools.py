@@ -15,8 +15,6 @@ from qdrant_client import QdrantClient
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
 # Import wrappers for robust execution
-from qdrant_client_wrapper import search_collection, embed_query_unified, embed_sparse_query_unified
-from services.qdrant_service import get_collection_embedding_params
 
 from .config import get_config, GraceConfig
 from regex_mecab import KeywordExtractor
@@ -109,7 +107,6 @@ class RAGSearchTool(BaseTool):
             ToolResult: 検索結果
         """
         import time
-        import re
         from agent_tools import search_rag_knowledge_base_structured
 
         start_time = time.time()

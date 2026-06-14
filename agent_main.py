@@ -16,17 +16,15 @@ agent_service.py のプロンプトと機能を統合したCLI版
 - 再試行メカニズム
 """
 
-import os
 import uuid
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
 # AnthropicClient を helper_llm 経由で使用（agent_service.py と同パターン）
 from helper.helper_llm import create_llm_client  # [FIXED] helper_llm → helper.helper_llm
 
-from dotenv import load_dotenv
 import logging
 import datetime
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any
 from pathlib import Path
 
 # Configuration and Tools

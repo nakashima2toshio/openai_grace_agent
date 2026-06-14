@@ -17,8 +17,7 @@ helper_api.py - 後方互換レイヤー
 import re
 import time
 import os
-import json
-from typing import List, Dict, Any, Optional, Union, Literal
+from typing import List, Dict, Any, Union, Literal
 from pathlib import Path
 from functools import wraps
 from datetime import datetime
@@ -51,7 +50,6 @@ from services.token_service import TokenManager
 # ===================================================================
 # 外部ライブラリ
 # ===================================================================
-from openai import OpenAI
 
 # Gemini 3 Migration: 抽象化レイヤー
 from helper.helper_llm import (  # [FIXED] helper_llm → helper.helper_llm
@@ -68,9 +66,6 @@ from helper.helper_llm import (  # [FIXED] helper_llm → helper.helper_llm
 from openai.types.responses import (
     EasyInputMessageParam,
     Response
-)
-from openai.types.chat import (
-    ChatCompletionMessageParam,
 )
 
 # Role型の定義

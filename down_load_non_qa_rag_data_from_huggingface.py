@@ -782,7 +782,7 @@ def main():
                     if not split_name:
                         split_name = "train"
 
-                    with st.spinner(f"データをダウンロード中..."):
+                    with st.spinner("データをダウンロード中..."):
                         # ストリーミングモードで確実にロード
                         samples = []
 

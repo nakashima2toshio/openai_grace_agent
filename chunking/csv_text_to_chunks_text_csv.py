@@ -82,7 +82,7 @@ from tqdm.asyncio import tqdm as async_tqdm
 # 既存のインポート
 from chunking.async_api_client import AsyncAPIClient
 from chunking.checkpoint_manager import CheckpointManager
-from chunking.models import StructuralResult, ParagraphUnit, ContinuityResult
+from chunking.models import StructuralResult, ContinuityResult
 from chunking.prompts import (
     PARAGRAPH_SEPARATION_PROMPT,
     SEMANTIC_CHUNKING_PROMPT,
@@ -90,9 +90,7 @@ from chunking.prompts import (
 )
 from chunking.utils import (
     setup_logging,
-    format_time,
-    format_size,
-    estimate_api_calls
+    format_size
 )
 from chunking.regex_string import chunk_text
 
@@ -380,7 +378,7 @@ def save_chunks_as_simple_csv(
     logger.info("=" * 60)
     logger.info(f"  ファイル: {output_file}")
     logger.info(f"  チャンク数: {len(df)}")
-    logger.info(f"  カラム: Text のみ")
+    logger.info("  カラム: Text のみ")
     logger.info("=" * 60)
 
     return output_file

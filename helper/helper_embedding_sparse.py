@@ -13,8 +13,7 @@ FastEmbedライブラリを使用し、ローカルCPUで高速に動作しま�
 """
 
 import logging
-from typing import List, Dict, Any, Iterable
-import time
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 

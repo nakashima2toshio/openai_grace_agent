@@ -9,12 +9,10 @@ GRACE (Planner + Executor) アーキテクチャを使用したエージェン�
 改修(2): ReActAgent → Planner/Executor 接続
 """
 
-import os
 import logging
 import streamlit as st
 import pandas as pd
-from typing import Dict, List, Any, Optional, Generator
-from qdrant_client import QdrantClient
+from typing import List, Optional
 
 # Configuration and Services
 from config import AgentConfig, GeminiConfig
@@ -23,11 +21,11 @@ from config import AgentConfig, GeminiConfig
 # 旧: from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
 from services.agent_service import get_available_collections_from_qdrant_helper  # これだけ残す
 from grace import (
-    Planner, create_planner,
+    create_planner,
     Executor, create_executor,
     ExecutionPlan, ExecutionState, ExecutionResult,
-    StepResult, StepStatus,
-    GraceConfig, get_config as get_grace_config,
+    StepStatus,
+    get_config as get_grace_config,
 )
 from qdrant_client_wrapper import get_qdrant_client
 

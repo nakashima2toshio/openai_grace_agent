@@ -7,7 +7,6 @@ log_viewer_page.py - 未回答ログ閲覧ページ
 """
 
 import streamlit as st
-import pandas as pd
 from services.log_service import load_unanswered_logs, clear_unanswered_logs
 
 def show_log_viewer_page():

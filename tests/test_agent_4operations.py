@@ -429,7 +429,7 @@ class TestOperation4InterventionReplan:
 
 class TestBenchmarkPerformanceEvaluation:
     def test_benchmark_module_importable(self):
-        from grace.benchmark import BenchmarkRunner, BenchmarkSession, BenchmarkLogger
+        from grace.benchmark import BenchmarkRunner
         assert BenchmarkRunner is not None
 
     def test_benchmark_queries_complete(self):

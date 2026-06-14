@@ -9,7 +9,7 @@ import json
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 from config import DATASET_CONFIGS
 from helper.helper_rag import clean_text
 

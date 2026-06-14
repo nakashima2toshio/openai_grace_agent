@@ -95,7 +95,6 @@ import argparse
 import logging
 import re
 import pandas as pd
-from typing import List, Dict, Optional
 from pathlib import Path
 
 # QA生成関連
@@ -150,9 +149,9 @@ def run_registration(
     Returns:
         bool: 成功時True、失敗時False
     """
-    logger.info(f"\n" + "=" * 60)
-    logger.info(f"Phase 2: Qdrant Registration")
-    logger.info(f"=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("Phase 2: Qdrant Registration")
+    logger.info("=" * 60)
 
     if not os.path.exists(csv_path):
         logger.error(f"入力ファイルが見つかりません: {csv_path}")
@@ -241,9 +240,9 @@ def run_registration(
 
         if 'question' in df.columns and 'answer' in df.columns:
             df[['question', 'answer']].to_csv(output_path, index=False, encoding='utf-8')
-            logger.info(f"   -> 作成完了")
+            logger.info("   -> 作成完了")
         else:
-            logger.warning(f"   -> 必要なカラム(question, answer)が見つからないためスキップ")
+            logger.warning("   -> 必要なカラム(question, answer)が見つからないためスキップ")
 
     except Exception as e:
         logger.warning(f"UI用ファイル作成失敗: {e}")
@@ -441,9 +440,9 @@ def main():
         # ================================================================
         # Phase 1: Q/A生成
         # ================================================================
-        logger.info(f"\n" + "=" * 60)
-        logger.info(f"Phase 1: QA Generation Pipeline")
-        logger.info(f"=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("Phase 1: QA Generation Pipeline")
+        logger.info("=" * 60)
 
         # 入力ファイルが指定された場合
         if args.input_file:
@@ -570,14 +569,14 @@ def main():
         )
 
         if success:
-            logger.info(f"\n" + "=" * 60)
-            logger.info(f"🎉 統合処理が正常に完了しました！")
+            logger.info("\n" + "=" * 60)
+            logger.info("🎉 統合処理が正常に完了しました！")
             logger.info(f"   コレクション: {args.collection}")
             logger.info(f"   データ件数  : {qa_count} 件")
             logger.info(f"   Q/A CSV     : {generated_csv}")
             logger.info(
                 f"   UI用CSV     : {os.path.join(args.ui_output, normalize_source_filename(os.path.basename(generated_csv)))}")
-            logger.info(f"=" * 60)
+            logger.info("=" * 60)
         else:
             logger.error("\n❌ Qdrant登録フェーズで失敗しました。")
 

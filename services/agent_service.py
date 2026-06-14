@@ -1,8 +1,6 @@
 # agent_services.py
-import os
 import uuid
-from typing import Dict, List, Any, Optional, Union, Tuple, Generator
-from qdrant_client import QdrantClient
+from typing import Dict, List, Any, Optional, Generator
 from qdrant_client_wrapper import get_qdrant_client
 
 # [MIGRATION] from google import genai / from google.genai import types を削除
@@ -15,11 +13,10 @@ from agent_tools import (
     RAGToolError,
     search_rag_knowledge_base_cached
 )
-from services.qdrant_service import get_all_collections
 from services.log_service import log_unanswered_question
 
 # 設定サービスからロガーと設定を取得
-from services.config_service import config, logger, get_config
+from services.config_service import logger, get_config
 
 # キーワード抽出（オプション）
 try:
@@ -31,8 +28,6 @@ except ImportError:
     KeywordExtractor = None
 
 # キャッシュと並列検索をインポート
-from agent_cache import collection_cache
-from agent_parallel_search import parallel_search_engine
 
 # -----------------------------------------------------------------------------
 # Constants & Configuration

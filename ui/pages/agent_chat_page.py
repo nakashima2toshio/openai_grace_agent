@@ -8,12 +8,10 @@ Gemini 2.0 Flash を使用した ReAct 型エージェントとの対話イン�
 Qdrant 上のナレッジベース(コレクション)を動的に選択し、RAG 検索を行いながら回答します。
 """
 
-import os
 import logging
 import streamlit as st
 import pandas as pd
-from typing import Dict, List, Any, Optional, Union, Tuple
-from qdrant_client import QdrantClient
+from typing import List
 
 # Configuration and Tools
 from config import AgentConfig, GeminiConfig

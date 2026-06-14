@@ -12,7 +12,6 @@ Qdrantベクトルデータベースを使用した意味検索
 - スコア詳細表示（Original + Rerank）
 """
 
-import warnings
 import pandas as pd
 import streamlit as st
 from helper.helper_llm import create_llm_client
@@ -20,11 +19,9 @@ from qdrant_client import QdrantClient
 
 # サービスモジュールからインポート
 from services.qdrant_service import (
-    QdrantDataFetcher,
     embed_query_for_search,
     get_collection_embedding_params,
 )
-from services.file_service import load_source_qa_data
 from qdrant_client_wrapper import search_collection, \
     embed_sparse_query_unified  # Import search_collection and embed_sparse_query_unified
 

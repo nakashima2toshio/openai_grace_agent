@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from grace.schemas import ExecutionPlan
 
 def display_confidence_metric(score: float, level: str, breakdown: Dict[str, float]):

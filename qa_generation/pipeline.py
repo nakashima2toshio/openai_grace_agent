@@ -341,7 +341,7 @@ class QAPipeline:
             concurrency: 並列タスク数
             batch_size: バッチサイズ
         """
-        logger.info(f"  Celery並列処理モード:")
+        logger.info("  Celery並列処理モード:")
         logger.info(f"    - ワーカープロセス数チェック: {workers}")
         logger.info(f"    - 並列タスク数 (concurrency): {concurrency}")
 

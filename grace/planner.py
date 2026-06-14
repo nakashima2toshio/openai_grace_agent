@@ -12,7 +12,7 @@ GRACE Planner - 計画生成エージェント
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional
 
 # [MIGRATION] 削除: from google import genai / from google.genai import types
 # [MIGRATION] 追加: AnthropicClient を helper_llm 経由で使用

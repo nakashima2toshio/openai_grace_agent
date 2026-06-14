@@ -4,7 +4,7 @@ GRACE Schemas - Pydanticモデル定義
 計画生成・実行に使用するデータモデルを定義
 """
 
-from typing import Literal, Optional, List, Any
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from enum import Enum

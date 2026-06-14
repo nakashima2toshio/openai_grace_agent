@@ -9,7 +9,6 @@ import logging
 import time
 from typing import Dict, Literal, Optional, List, Callable, Any, Generator, cast
 from dataclasses import dataclass, field
-from enum import Enum
 
 from .schemas import (
     ExecutionPlan,
@@ -22,11 +21,8 @@ from .schemas import (
 from .tools import ToolRegistry, ToolResult, create_tool_registry
 from .config import get_config, GraceConfig
 from .confidence import (
-    ConfidenceCalculator,
     ConfidenceFactors,
     ConfidenceScore,
-    LLMSelfEvaluator,
-    ConfidenceAggregator,
     ActionDecision,
     InterventionLevel,
     create_confidence_calculator,
@@ -36,7 +32,6 @@ from .confidence import (
     create_source_agreement_calculator,  # TODO #5: 追加
 )
 from .intervention import (
-    InterventionHandler,
     InterventionRequest,
     InterventionResponse,
     InterventionAction,
@@ -828,7 +823,7 @@ class Executor:
             # → 動的挿入された web_search やリプラン後の結果も取得可能
             context_parts = []
             sources = []
-            logger.info(f"--- Reasoning Step ---")
+            logger.info("--- Reasoning Step ---")
             logger.info(f"Step: {step}")
             logger.info(f"Available step_results: {list(state.step_results.keys())}")
 
@@ -954,7 +949,7 @@ class Executor:
         web_step = PlanStep(
             step_id=web_step_id,
             action="web_search",
-            description=f"[動的挿入] RAGスコア不足のためWeb検索を実行",
+            description="[動的挿入] RAGスコア不足のためWeb検索を実行",
             query=rag_step.query,
             collection=None,
             depends_on=[rag_step.step_id],
@@ -1025,7 +1020,7 @@ class Executor:
         ask_step = PlanStep(
             step_id=ask_step_id,
             action="ask_user",
-            description=f"[動的挿入] 検索結果が不十分なためユーザーに確認",
+            description="[動的挿入] 検索結果が不十分なためユーザーに確認",
             query=(
                 f"「{rag_step.query[:100]}」について検索しましたが、"
                 f"十分な情報が見つかりませんでした。\n"

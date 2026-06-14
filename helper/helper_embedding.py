@@ -398,7 +398,7 @@ if __name__ == "__main__":
         print(f"First 5 values: {vector[:5]}")
 
         if len(vector) == DEFAULT_OPENAI_EMBEDDING_DIMS:
-            print(f"[OK] 3072次元の検証: PASS")
+            print("[OK] 3072次元の検証: PASS")
         else:
             print(f"[NG] 3072次元の検証: FAIL (actual: {len(vector)})")
 
@@ -416,7 +416,7 @@ if __name__ == "__main__":
         print(f"First 5 values: {vector[:5]}")
 
         if len(vector) == DEFAULT_GEMINI_EMBEDDING_DIMS:
-            print(f"[OK] 3072次元の検証: PASS")
+            print("[OK] 3072次元の検証: PASS")
         else:
             print(f"[NG] 3072次元の検証: FAIL (actual: {len(vector)})")
 

@@ -15,7 +15,6 @@ celery_tasks.py - Celeryタスク定義（修正版 v3.0）
 - get_worker_info() 詳細情報取得関数の追加
 """
 
-import os
 import sys
 import logging
 from pathlib import Path
@@ -124,7 +123,7 @@ def generate_qa_for_chunk_task(
     dataset_type = config.get("type", "unknown")
 
     logger.info("=" * 60)
-    logger.info(f"[ワーカー] タスク開始")
+    logger.info("[ワーカー] タスク開始")
     logger.info("=" * 60)
     logger.info(f"  chunk_id: {chunk_id}")
     logger.info(f"  model: {model}")
@@ -172,7 +171,7 @@ def generate_qa_for_chunk_task(
 
     except ImportError as exc:
         logger.error("=" * 60)
-        logger.error(f"[ワーカー] ❌ モジュールインポートエラー")
+        logger.error("[ワーカー] ❌ モジュールインポートエラー")
         logger.error("=" * 60)
         logger.error(f"  chunk_id: {chunk_id}")
         logger.error(f"  エラー: {exc}")
@@ -190,7 +189,7 @@ def generate_qa_for_chunk_task(
 
     except Exception as exc:
         logger.error(f"[ワーカー] ❌ タスクエラー: chunk={chunk_id}")
-        logger.error(f"[ワーカー] エラー詳細:", exc_info=True)
+        logger.error("[ワーカー] エラー詳細:", exc_info=True)
 
         # リトライ
         if self.request.retries < self.max_retries:
@@ -638,7 +637,7 @@ if __name__ == "__main__":
 
         # クラスメソッド確認
         print(f"クラス: {SmartQAGenerator}")
-        print(f"メソッド: __init__, analyze_chunk, generate_qa_pairs, process_chunk")
+        print("メソッド: __init__, analyze_chunk, generate_qa_pairs, process_chunk")
 
     except ImportError as e:
         print(f"❌ インポート失敗: {e}")

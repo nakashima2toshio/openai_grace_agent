@@ -13,11 +13,8 @@ Q/Aペアの生成と保存に関するビジネスロジック
 
 import os
 import sys
-import re
 import json
 import logging
-import threading
-import queue
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional

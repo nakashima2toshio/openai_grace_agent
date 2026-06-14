@@ -156,9 +156,7 @@ def extract_sentences_japanese(text: str) -> List[str]:
 # ===================================================================
 # 後方互換性のため、services.token_serviceからimport
 from services.token_service import (
-    get_encoding,
     count_tokens,
-    estimate_tokens_simple,
 )  # noqa: E402
 
 

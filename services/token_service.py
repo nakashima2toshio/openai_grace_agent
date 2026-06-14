@@ -12,7 +12,7 @@ token_service.py - トークン管理サービス
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 import tiktoken
 

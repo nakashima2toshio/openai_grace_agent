@@ -13,7 +13,7 @@ import os
 import yaml
 import logging
 import logging.handlers
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from pathlib import Path
 
 
