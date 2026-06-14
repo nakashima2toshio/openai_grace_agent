@@ -96,6 +96,19 @@ class TestExecutor:
         """各テスト前の準備"""
         reset_config()
 
+    @pytest.fixture(autouse=True)
+    def _stub_rag_relevance(self):
+        """RAG意味的適合性チェックは実LLM呼び出しを伴う。
+
+        本クラスはモックツールでオーケストレーション（ステップ進行・状態遷移）を
+        検証するユニットテストのため、実LLMに依存する適合性判定は固定値にスタブする。
+        実LLM版の挙動は tests/grace/test_executor_integration.py（実APIキー必須）で担保する。
+        スタブしないと、APIキーの有無やモデル種別（gpt-5系=推論モデル）で
+        判定結果が変動し、動的 web_search 挿入によりテストが非決定的になる。
+        """
+        with patch.object(Executor, "_evaluate_rag_relevance", return_value=True):
+            yield
+
     @pytest.fixture
     def mock_tool_registry(self):
         """モックツールレジストリ"""
