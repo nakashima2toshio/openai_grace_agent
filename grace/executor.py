@@ -1238,66 +1238,47 @@ class Executor:
                     final_answer = result.output
                     break
 
-        # LLMSelfEvaluatorで最終回答を評価（オプション）
+        # LLMSelfEvaluatorで最終回答を評価（#65: 自己評価＋クエリ網羅度を1回の呼び出しに統合）
         if final_answer is not None:
-            # 1. LLM自己評価 (Accuracy/Style etc.)
             try:
-                eval_result = self.llm_evaluator.evaluate(
+                final_eval = self.llm_evaluator.evaluate_final(
                     query=state.plan.original_query,
                     answer=final_answer,
                     sources=state.get_completed_sources()
                 )
 
-                score_val = 0.0
-                if hasattr(eval_result, 'score'):
-                    score_val = eval_result.score
-                elif isinstance(eval_result, (int, float)):
-                    score_val = float(eval_result)
-
-                # breakdownを更新
-                current_breakdown["llm_self_eval"] = score_val
-
-                # 更新されたbreakdownを持つConfidenceScoreを作成
+                # 1. LLM自己評価 (Accuracy/Style etc.)
+                current_breakdown["llm_self_eval"] = final_eval.self_eval_score
                 llm_score = ConfidenceScore(
-                    score=score_val,
-                    factors=ConfidenceFactors(llm_self_confidence=score_val),
-                    breakdown=current_breakdown.copy()  # 全要素を含むbreakdown
+                    score=final_eval.self_eval_score,
+                    factors=ConfidenceFactors(llm_self_confidence=final_eval.self_eval_score),
+                    breakdown=current_breakdown.copy(),
+                    reason=final_eval.reason,
                 )
                 step_scores.append(llm_score)
-                logger.info(f"LLM self-evaluation: {score_val:.2f}")
+                logger.info(f"LLM self-evaluation: {final_eval.self_eval_score:.2f}")
 
-            except Exception as e:
-                logger.warning(f"LLM self-evaluation failed: {e}")
-
-            # 2. クエリ網羅度評価 (Query Coverage)
-            try:
-                coverage_score = self.query_coverage_calculator.calculate(
-                    query=state.plan.original_query,
-                    answer=final_answer
-                )
-
-                # breakdownを更新
-                current_breakdown["query_coverage"] = coverage_score
-
+                # 2. クエリ網羅度評価 (Query Coverage)
+                current_breakdown["query_coverage"] = final_eval.coverage_score
                 coverage_obj = ConfidenceScore(
-                    score=coverage_score,
-                    factors=ConfidenceFactors(query_coverage=coverage_score),
-                    breakdown=current_breakdown.copy()  # 全要素を含むbreakdown
+                    score=final_eval.coverage_score,
+                    factors=ConfidenceFactors(query_coverage=final_eval.coverage_score),
+                    breakdown=current_breakdown.copy()
                 )
                 step_scores.append(coverage_obj)
-                logger.info(f"Query coverage evaluation: {coverage_score:.2f}")
+                logger.info(f"Query coverage evaluation: {final_eval.coverage_score:.2f}")
 
                 # UIへの反映のために、最後の信頼度更新として通知する
                 if self.on_confidence_update:
                     decision = ActionDecision(
                         level=InterventionLevel.SILENT,
-                        confidence_score=coverage_score,
+                        confidence_score=final_eval.coverage_score,
                         reason="Final coverage evaluation completed"
                     )
                     self.on_confidence_update(coverage_obj, decision)
 
             except Exception as e:
-                logger.warning(f"Query coverage evaluation failed: {e}")
+                logger.warning(f"Final evaluation (evaluate_final) failed: {e}")
 
         # ConfidenceAggregatorで統合
         if step_scores:
