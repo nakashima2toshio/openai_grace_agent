@@ -149,6 +149,67 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 
 ---
 
+## Phase H — gpt-5 推論モデル対応・LLM出力枠の是正（2026-06-14 追記）
+
+`tests/` 実行で `tests/grace/test_executor.py` の `TestExecutor::test_execute_plan_success`
+/`test_execute_plan_with_callbacks` が **実 `OPENAI_API_KEY` 設定時のみ** 失敗
+（`partial != success` / `4 != 2 steps`）した事象の恒久対策。
+
+### 根本原因（単一）
+
+**gpt-5 系は推論モデルで、`max_completion_tokens` をまず内部推論トークンに消費する。**
+枠が小さいと本文が出る前に打ち切られ、可視出力が空/切断になる。
+
+- 直接証拠（ログ）: confidence は `completion_tokens=200, reasoning_tokens=200` で parse 失敗、
+  relevance は `max_completion_tokens=5` で本文 `''` → `"YES" in '' = False`。
+- **移植リグレッション**: anthropic（正）の出力枠が openai 移植時に削られていた
+  （`512→10`、`1024→200`）。claude（非推論）は小枠でも応答するため顕在化せず、
+  gpt-5-mini で初めて破綻。
+- **テスト非密閉**: `TestExecutor` は実LLMを呼ぶ非密閉テストで、APIキー無し環境では
+  例外→`default True` で素通りしていた。課金でキーを有効化した瞬間に欠陥が露出
+  （relevance が常に「不適合」→不要な `web_search`/`ask_user` 動的挿入→`partial`）。
+
+### 連鎖（症状）
+
+`temperature` 400（gpt-5 はデフォルト1のみ）はこの一部の症状にすぎなかった。
+
+| 経路 | 症状 | 影響 |
+|---|---|---|
+| `confidence.evaluate_*` | 出力空→parse失敗→毎回フォールバック | 信頼度劣化（status は不変） |
+| `executor._evaluate_rag_relevance` | 出力空→常に不適合 | 不要な web_search/ask_user 挿入→`partial`・余分なステップ |
+
+### 対応（3点）
+
+| # | 種別 | 状態 | 作業 |
+|---|---|---|---|
+| **H1** | fix | ✅ DONE（PR #24） | `helper/helper_llm.py` `OpenAIClient` に `_drop_unsupported_temperature()` を追加。gpt-5 系へ非デフォルト `temperature` が渡された場合は drop（`generate_content`/`generate_structured`/`generate_with_tools`）。**モデル名マッピング・APIメソッド変更なし** |
+| **H2** | fix | ✅ DONE（PR #25） | `grace/confidence.py` の出力枠を anthropic 正本基準に復元（`10→512`、`200→1024`）。`grace/executor.py _evaluate_rag_relevance` は枠 `5→256` ＋ **空応答時は関数自身のフォールバック契約どおり `True`（適合扱い）** を返す安全網を追加 |
+| **H3** | test | ✅ DONE（PR #25） | `tests/grace/test_executor.py` `TestExecutor` を **密閉化**（autouse fixture で `_evaluate_rag_relevance` をスタブ）。APIキー有無・モデル種別に依存せず決定的に |
+
+### 検証
+
+- 旧失敗2件 → 決定的に PASS。`test_executor.py`＋`test_confidence.py` 全 PASS。
+- 全体 `362 passed`（旧 `360`）。残2件は本変更と無関係の `tiktoken` BPEダウンロード
+  （ネットワーク403のサンドボックス制約）のみ。
+
+### 横展開（同一リグレッション）
+
+出力枠の削り過ぎは anthropic→各 provider 移植時に共通混入。**推論/thinking 系モデル**で
+同種破綻のリスクがあるため横展開済み。
+
+| repo | 出力枠パラメータ | confidence 枠 | relevance 枠 | 反映 |
+|---|---|---|---|---|
+| anthropic（正） | `max_tokens` | 512 / 1024 | 5 | 元から正（=baseline） |
+| openai | `max_completion_tokens` | **512 / 1024** | **256** | PR #25 |
+| ollama | `max_tokens` | **512 / 1024** | **256** | PR #92 |
+| gemini | `max_output_tokens` | **512 / 1024** | **256** | PR #20 |
+
+> **anthropic への適用**: コード枠は元から正のため不要。ただし `TestExecutor` の
+> **非密閉性は anthropic にも存在**（キー無しで素通り）。実LLM稼働環境での決定化が必要なら
+> H3 のスタブを anthropic にも適用すること（任意）。
+
+---
+
 ## 検証
 
 - **静的**: 各 PR 単位で `ruff check .` ＋ `python -m compileall` を緑に。
@@ -211,6 +272,12 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [x] G2 ui/pages/benchmark_page.py 移植 ✅ (G1/G2 commit)
 - [x] G3 残存 gpt-5.4-mini → gpt-5-mini 統一 ✅ 9dcfece
 - [x] G4 未使用 import 整理（ruff F401/F541・46ファイル）✅ 98e5e69
+
+### Phase H — gpt-5 推論モデル対応・LLM出力枠の是正（2026-06-14 追記）
+- [x] H1 gpt-5 系の非デフォルト temperature drop（_drop_unsupported_temperature）✅ PR #24
+- [x] H2 confidence/relevance 出力枠の anthropic 基準復元（10→512・200→1024、relevance 5→256・空応答安全網）✅ PR #25
+- [x] H3 TestExecutor 密閉化（_evaluate_rag_relevance スタブ・決定的化）✅ PR #25
+- [ ] H4（任意）anthropic 側 TestExecutor の密閉化（実LLM稼働環境での決定化が必要なら）
 
 ---
 
