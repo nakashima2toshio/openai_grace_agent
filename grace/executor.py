@@ -554,6 +554,39 @@ class Executor:
             result.output = f"ユーザー応答: {user_response}"
             state.step_results[step.step_id] = result
 
+    def _run_tool_with_timeout(
+            self,
+            tool: Any,
+            kwargs: Dict[str, Any],
+            step: PlanStep
+    ) -> ToolResult:
+        """ツールを timeout_seconds 制限付きで実行する。
+
+        タイムアウト時は TimeoutError を送出し、呼び出し元の
+        フォールバック/失敗処理に委ねる。
+        （実行中のスレッド自体は中断できないためバックグラウンドで放置される）
+        """
+        timeout = step.timeout_seconds
+        if not timeout:
+            return tool.execute(**kwargs)
+
+        from concurrent.futures import ThreadPoolExecutor as _Pool
+        from concurrent.futures import TimeoutError as _FutureTimeout
+
+        pool = _Pool(max_workers=1, thread_name_prefix=f"grace-step-{step.step_id}")
+        try:
+            future = pool.submit(tool.execute, **kwargs)
+            return future.result(timeout=timeout)
+        except _FutureTimeout:
+            logger.warning(
+                f"Step {step.step_id}: tool '{step.action}' timed out after {timeout}s"
+            )
+            raise TimeoutError(
+                f"ステップ {step.step_id} ({step.action}) が {timeout} 秒でタイムアウトしました"
+            )
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
     def _check_dependencies(self, step: PlanStep, state: ExecutionState) -> bool:
         """依存ステップの完了確認"""
         for dep_id in step.depends_on:
@@ -591,8 +624,8 @@ class Executor:
             # ツール実行引数を準備
             kwargs = self._prepare_tool_kwargs(step, state)
 
-            # 実行
-            tool_result: ToolResult = tool.execute(**kwargs)
+            # 実行（timeout_seconds 制限付き・ハング防止）
+            tool_result: ToolResult = self._run_tool_with_timeout(tool, kwargs, step)
 
             # --- UIへの中間結果通知 (思考プロセス表示用) ---
             if tool_result.success and tool_result.output:
