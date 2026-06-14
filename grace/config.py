@@ -166,6 +166,28 @@ class ToolsConfig(BaseModel):
     disabled: list = Field(default_factory=list, description="プロジェクト全体で恒久的に禁止するツールのリスト")
 
 
+class PlannerConfig(BaseModel):
+    """Planner設定（二層計画生成）"""
+    # この複雑度（ヒューリスティック推定）未満の質問は
+    # ルールベース計画（LLM呼び出しなし）で即時に計画を生成する
+    llm_plan_complexity_threshold: float = 0.7
+    # True の場合、複雑度に関わらず常に LLM 計画生成を使用する
+    force_llm_plan: bool = False
+
+
+class ExecutorConfig(BaseModel):
+    """Executor設定"""
+    # 検索結果が不十分な場合に動的挿入するフォールバックアクションの連鎖
+    # （PlanStep.fallback が指定されていない場合のデフォルト）
+    fallback_chain: Dict[str, str] = Field(default_factory=lambda: {
+        "rag_search": "web_search",
+        "web_search": "ask_user",
+    })
+    # 依存関係のない検索ステップを並列実行する
+    parallel_search: bool = True
+    max_parallel_steps: int = 4
+
+
 class GraceConfig(BaseModel):
     """GRACE Agent 統合設定"""
     version: str = "1.0"
@@ -180,6 +202,8 @@ class GraceConfig(BaseModel):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    planner: PlannerConfig = Field(default_factory=PlannerConfig)
+    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
 
 # =============================================================================
@@ -330,6 +354,8 @@ __all__ = [
     "QdrantConfig",
     "WebSearchConfig",
     "ToolsConfig",
+    "PlannerConfig",
+    "ExecutorConfig",
     "GraceConfig",
 
     # Loader

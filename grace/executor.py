@@ -4,6 +4,7 @@ GRACE Executor - 計画実行エージェント
 生成された計画を順次実行し、結果を管理
 """
 
+import ast
 import logging
 import time
 from typing import Dict, Literal, Optional, List, Callable, Any, Generator, cast
@@ -478,20 +479,9 @@ class Executor:
                 if self.on_step_complete:
                     self.on_step_complete(result)
 
-                # ask_user の場合、介入が必要
+                # ask_user の場合、UI コールバック経由で応答を取得し結果へ反映
                 if step.action == "ask_user" and result.status == "success":
-                    if self.on_intervention_required and isinstance(result.output, str):
-                        try:
-                            output_data = eval(result.output) if result.output.startswith("{}") else {
-                                "question": result.output}
-                        except Exception:
-                            output_data = {"question": result.output}
-
-                        user_response = self.on_intervention_required("ask_user", output_data)
-                        if user_response:
-                            # ユーザー応答を次のステップで利用可能にする
-                            result.output = f"ユーザー応答: {user_response}"
-                            state.step_results[step.step_id] = result
+                    self._handle_ask_user_response(step, result, state)
 
                 # 失敗時のリプラン（Phase 4で有効化）
                 if result.status == "failed" and self.replan_orchestrator:
@@ -534,6 +524,35 @@ class Executor:
     def execute(self, plan: ExecutionPlan) -> ExecutionResult:
         """execute_plan() の統一エントリーポイント（benchmark.py 互換）"""
         return self.execute_plan(plan)
+
+    def _handle_ask_user_response(
+            self,
+            step: PlanStep,
+            result: StepResult,
+            state: ExecutionState
+    ) -> None:
+        """ask_user ステップの出力を UI コールバックへ渡し、ユーザー応答を結果へ反映する"""
+        if not self.on_intervention_required:
+            return
+
+        output = result.output
+        if isinstance(output, dict):
+            output_data = output
+        elif isinstance(output, str):
+            # [SECURITY] eval() ではなく ast.literal_eval() を使用（任意コード実行を防止）
+            try:
+                parsed = ast.literal_eval(output)
+                output_data = parsed if isinstance(parsed, dict) else {"question": output}
+            except (ValueError, SyntaxError):
+                output_data = {"question": output}
+        else:
+            output_data = {"question": str(output)}
+
+        user_response = self.on_intervention_required("ask_user", output_data)
+        if user_response:
+            # ユーザー応答を後続ステップ（reasoning等）で利用可能にする
+            result.output = f"ユーザー応答: {user_response}"
+            state.step_results[step.step_id] = result
 
     def _check_dependencies(self, step: PlanStep, state: ExecutionState) -> bool:
         """依存ステップの完了確認"""
