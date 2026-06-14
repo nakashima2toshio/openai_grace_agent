@@ -191,16 +191,16 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [ ] requirements.txt（uv export）整理確認
 
 ### Phase E — チャンキング（フォルダー照合で追加）
-- [ ] E1 Embedding 上限連携（_enforce_max_chunk_tokens／--max-chunk-tokens）
-- [ ] E2 ルールベース継続判定（--continuity-mode／_rule_based_continuity）
-- [ ] E3 doc_id トレーシング（要検証）
-- [ ] E4 async_api_client トークン使用量集計
+- [x] E1 Embedding 上限連携（_enforce_max_chunk_tokens／--max-chunk-tokens）✅ 3c859e7
+- [x] E2 ルールベース継続判定（--continuity-mode／_rule_based_continuity）✅ 3c859e7
+- [x] E3 doc_id トレーシング ✅ 3c859e7
+- [x] E4 async_api_client トークン使用量集計 ✅ 3c859e7
 - [x] timestamp 固定ファイル名（DONE）
 
 ### Phase F — ヘルパー・横断（フォルダー照合で追加）
-- [ ] F1 トークンアキュムレータ（reset/get_token_counter）＋呼び出し配線（要検証）
-- [ ] F2 save_files_to_output(output_name=...)
-- [ ] F3 ToolUseResponse/TypeVar（任意・低優先）
+- [x] F1 トークンアキュムレータ（reset/get_token_counter）※executor/celery/pipeline 側の呼び出し配線は別途 ✅ 068b377
+- [x] F2 save_files_to_output(output_name=...)  ✅ 068b377
+- [ ] F3 ToolUseResponse/TypeVar（任意・低優先・スキップ判断）
 
 ### Phase G — 不足ファイル・整合性整理（フォルダー照合で追加）
 - [ ] G1 qdrant_delete_collection.py 移植（低優先）
