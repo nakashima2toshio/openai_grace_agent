@@ -257,50 +257,14 @@ class Planner:
             # --- [IPO LOG] PROCESS INPUT (GRACE PLANNER) ---
             logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
-            # リトライ付きでLLM呼び出し（最大2回）
-            import time as _time
+            # リトライ付きでLLM呼び出し（一時的エラーのみ指数バックオフ再試行）
+            plan = self._generate_plan_with_retry(prompt)
 
-            plan = None
-            last_error = None
-            max_attempts = 2
-
-            for attempt in range(max_attempts):
-                try:
-                    t0 = _time.time()
-
-                    # [MIGRATION] generate_content() + response_schema=ExecutionPlan
-                    #           → generate_structured() で Structured Outputs に自動変換
-                    # 戻り値は ExecutionPlan インスタンスが直接返る
-                    # ・空レスポンスガード不要（Tool Use は必ず構造体を返す）
-                    # ・JSONDecodeError チェック不要（SDK がパース済み）
-                    # ・AFC バグ対策コード不要（Anthropic には AFC が存在しない）
-                    plan = self.llm.generate_structured(
-                        prompt=prompt,
-                        response_schema=ExecutionPlan,
-                        model=self.model_name,
-                        max_completion_tokens=8192,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
-                        system="You are an expert planning agent. Always respond using the provided tool.",
-                        temperature=self.config.llm.temperature,
-                    )
-
-                    elapsed = _time.time() - t0
-                    logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
-
-                    # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
-                    logger.info(
-                        f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n"
-                        f"{plan.model_dump_json(indent=2)}\n{'=' * 60}"
-                    )
-
-                    break  # 成功したらループ終了
-
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"Plan creation attempt {attempt + 1}/{max_attempts} failed: {e}")
-                    continue
-
-            if plan is None:
-                raise last_error or ValueError("Plan creation failed after all retries")
+            # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
+            logger.info(
+                f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n"
+                f"{plan.model_dump_json(indent=2)}\n{'=' * 60}"
+            )
 
             # 複雑度は構造化出力（plan.complexity）をそのまま使用する（#61）
 
@@ -327,6 +291,76 @@ class Planner:
             logger.error(f"Failed to create plan with LLM: {e}")
             logger.info("Falling back to simple plan")
             return self._create_fallback_plan(query)
+
+    @staticmethod
+    def _is_transient_error(error: Exception) -> bool:
+        """一時的なエラー（リトライで回復しうるエラー）か判定する"""
+        # ステータスコードベースの判定（OpenAI SDK の APIStatusError 等）
+        status_code = getattr(error, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code in (408, 409, 429) or status_code >= 500
+
+        # クラス名・メッセージベースの判定
+        error_name = type(error).__name__.lower()
+        error_msg = str(error).lower()
+        transient_markers = (
+            "timeout", "ratelimit", "rate limit", "connection",
+            "overloaded", "unavailable", "429", "500", "502", "503", "529",
+        )
+        return any(m in error_name or m in error_msg for m in transient_markers)
+
+    def _generate_plan_with_retry(self, prompt: str) -> ExecutionPlan:
+        """LLM計画生成を指数バックオフ付きリトライで実行する。
+
+        一時的なエラー（レート制限・タイムアウト・5xx）のみリトライし、
+        認証エラー等の非一時的なエラーは即座に送出する。
+        リトライ設定は config.error（max_retries / retry_delay_base /
+        retry_delay_max / exponential_backoff）に従う。
+        """
+        import time as _time
+
+        max_attempts = max(1, self.config.error.max_retries)
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_attempts):
+            try:
+                t0 = _time.time()
+
+                # generate_structured() が Structured Outputs を隠蔽し、
+                # ExecutionPlan インスタンスを直接返す
+                plan = self.llm.generate_structured(
+                    prompt=prompt,
+                    response_schema=ExecutionPlan,
+                    model=self.model_name,
+                    max_completion_tokens=8192,  # [FIX] gpt-5-mini以降: max_tokens → max_completion_tokens
+                    system="You are an expert planning agent. Always respond using the provided tool.",
+                    temperature=self.config.llm.temperature,
+                )
+
+                elapsed = _time.time() - t0
+                logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
+                return plan
+
+            except Exception as e:
+                last_error = e
+                if not self._is_transient_error(e):
+                    logger.warning(f"Plan creation failed with non-transient error: {e}")
+                    raise
+
+                logger.warning(f"Plan creation attempt {attempt + 1}/{max_attempts} failed: {e}")
+                if attempt + 1 < max_attempts:
+                    if self.config.error.exponential_backoff:
+                        delay = min(
+                            self.config.error.retry_delay_base * (2 ** attempt),
+                            self.config.error.retry_delay_max,
+                        )
+                    else:
+                        delay = self.config.error.retry_delay_base
+                    logger.info(f"Retrying after {delay:.1f}s")
+                    _time.sleep(delay)
+
+        raise last_error or ValueError("Plan creation failed after all retries")
+
 
     def _create_plan_legacy(self, query: str) -> ExecutionPlan:
         """
@@ -500,17 +534,19 @@ class Planner:
         """
         logger.info(f"Refining plan {plan.plan_id} with feedback")
 
+        # 元計画の完全なJSON（query・依存関係・fallback含む）を渡す。
+        # description のみでは修正後の計画から検索クエリ等が欠落するため。
         refine_prompt = f"""
 以下の実行計画をユーザーのフィードバックに基づいて修正してください。
 
-【元の計画】
-クエリ: {plan.original_query}
-ステップ数: {len(plan.steps)}
-ステップ: {[s.description for s in plan.steps]}
+【元の計画（完全なJSON）】
+{plan.model_dump_json(indent=2, exclude={"created_at", "plan_id"})}
 
 【ユーザーのフィードバック】
 {feedback}
 
+フィードバックで指摘された箇所のみを変更し、それ以外のステップ構造・
+クエリ・依存関係・fallback は元の計画を維持してください。
 修正された計画をJSON形式で出力してください。
 """
 
