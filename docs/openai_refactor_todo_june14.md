@@ -182,15 +182,17 @@ provider 値差（モデル名・APIキー・Embedding クライアント）は�
 - [x] #82 get_collection_embedding_params（DONE 相当）
 
 ### Phase C — テスト
-- [ ] provider 非依存テスト verbatim 移植
-- [ ] provider 結合テスト 値読み替え移植
-- [ ] helpers テスト 新規作成
-- [ ] tests/README.md 作成
+- [x] provider 非依存テスト verbatim 移植 ✅ (grace/services/chunking)
+- [x] provider 結合テスト 値読み替え移植 ✅ (config/qdrant/semantic 等)
+- [x] helpers テスト 新規作成 ✅ (test_helper_llm/test_helper_embedding)
+- [x] tests/README.md 作成 ✅
+  - 注: stale 4本(structure/generation/content/keyword_extraction)は対象モジュール非存在で除外。
+    未実装機能依存(manifest検証・filter_embeddable_rows 等)は pytest.mark.skip で明示
 
 ### Phase D — 基盤・ドキュメント
-- [ ] .github/workflows/ci.yml 作成
-- [ ] CLAUDE.md §7/§8/§9 追加
-- [ ] requirements.txt（uv export）整理確認
+- [x] .github/workflows/ci.yml 作成（ruff blocking + compileall + claude/* auto-merge）✅ 9f72b03
+- [x] CLAUDE.md §7/§8/§9 追加 ✅ 1e6720b
+- [x] requirements.txt（uv export）整理確認（既存維持）
 
 ### Phase E — チャンキング（フォルダー照合で追加）
 - [x] E1 Embedding 上限連携（_enforce_max_chunk_tokens／--max-chunk-tokens）✅ 3c859e7

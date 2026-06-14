@@ -204,3 +204,6 @@ known-first-party = [
     "qdrant_client_wrapper", "qdrant_delete_collection", "regex_mecab", "run_benchmark",
     "services", "tests", "ui", "down_load_non_qa_rag_data_from_huggingface",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
