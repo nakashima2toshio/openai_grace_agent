@@ -846,14 +846,14 @@ async def _step1_hierarchical_split(
 
     tasks = []
     for i, entry in enumerate(block_entries):
-        # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
-        # （Anthropic の system + cache_control は使用しない）
-        prompt = f"{PARAGRAPH_SEPARATION_PROMPT}\n\n【入力テキスト】\n{entry['block']}"
+        # 指示文は system へ、入力本文のみ contents に渡す（anthropic/ollama と同パターン）
+        prompt_body = f"【入力テキスト】\n{entry['block']}"
         task = client.generate_content(
             model=model,
-            contents=prompt,
+            contents=prompt_body,
             response_schema=StructuralResult,
             task_id=f"step1_block_{i}",
+            system=PARAGRAPH_SEPARATION_PROMPT,
         )
         tasks.append(task)
 
@@ -919,13 +919,14 @@ async def _step2_semantic_chunking(
 
     tasks = []
     for i, para in enumerate(paragraphs):
-        # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
-        prompt = f"{SEMANTIC_CHUNKING_PROMPT}\n\n【入力テキスト】\n{para['text']}"
+        # 指示文は system へ、入力本文のみ contents に渡す（anthropic/ollama と同パターン）
+        prompt_body = f"【入力テキスト】\n{para['text']}"
         task = client.generate_content(
             model=model,
-            contents=prompt,
+            contents=prompt_body,
             response_schema=StructuralResult,
             task_id=f"step2_para_{i}",
+            system=SEMANTIC_CHUNKING_PROMPT,
         )
         tasks.append(task)
 
@@ -1099,17 +1100,17 @@ async def _step3_continuity_check(
         # LLM判定（旧動作）: 同一文書内ペアごとに1回のLLM呼び出し
         tasks = []
         for i in pair_indices:
-            # [MIGRATION] OpenAI はプロンプトを user メッセージにインライン結合する
-            prompt = (
-                f"{CONTINUITY_CHECK_PROMPT}\n\n"
+            # 指示文は system へ、入力本文のみ contents に渡す（anthropic/ollama と同パターン）
+            prompt_body = (
                 f"【前のテキスト】\n{chunks[i]['text']}\n\n"
                 f"【次のテキスト】\n{chunks[i + 1]['text']}"
             )
             task = client.generate_content(
                 model=model,
-                contents=prompt,
+                contents=prompt_body,
                 response_schema=ContinuityResult,
                 task_id=f"step3_pair_{i}",
+                system=CONTINUITY_CHECK_PROMPT,
             )
             tasks.append(task)
 

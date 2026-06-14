@@ -98,7 +98,8 @@ class AsyncAPIClient:
         model: str,
         contents: str,
         response_schema: Type[BaseModel],
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        system: Optional[str] = None,
     ) -> Optional[str]:
         """
         セマフォで並列数を制御しながらAPI呼び出し
@@ -109,13 +110,14 @@ class AsyncAPIClient:
             contents: 入力テキスト
             response_schema: レスポンスのPydanticスキーマ
             task_id: タスク識別子（ログ用）
+            system: システムプロンプト（指示文）。contents には入力本文のみを渡す
 
         Returns:
             JSON文字列（Pydanticモデルとして解析可能）、失敗時はNone
         """
         async with self.semaphore:
             return await self._execute_with_retry(
-                model, contents, response_schema, task_id
+                model, contents, response_schema, task_id, system
             )
 
     async def _execute_with_retry(
@@ -123,9 +125,16 @@ class AsyncAPIClient:
         model: str,
         contents: str,
         response_schema: Type[BaseModel],
-        task_id: Optional[str]
+        task_id: Optional[str],
+        system: Optional[str] = None,
     ) -> Optional[str]:
         """リトライロジック（OpenAI Structured Outputs による構造化出力）"""
+
+        # system プロンプトと入力本文を分離（指示文は system ロールへ）
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": contents})
 
         for attempt in range(self.max_retries):
             try:
@@ -139,7 +148,7 @@ class AsyncAPIClient:
                     self.client.beta.chat.completions.parse,
                     model=model,
                     max_completion_tokens=self.max_output_tokens,
-                    messages=[{"role": "user", "content": contents}],
+                    messages=messages,
                     response_format=response_schema,
                 )
 
