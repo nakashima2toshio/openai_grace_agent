@@ -112,7 +112,7 @@ PG_CONN_STR=postgresql://...       # Optional, for PostgreSQL integration
 
 - **Japanese Text Processing**: Uses regex patterns for Japanese sentence splitting
 - **Chunking Strategy**: Semantic chunking with 200 token limit per chunk
-- **Embedding Model**: Default is "text-embedding-3-small"
+- **Embedding Model**: Default is "text-embedding-3-large" (3072 dims, OpenAI API)
 - **Coverage Threshold**: 0.8 cosine similarity for matching Q&A to chunks
 - **Token Counting**: Uses tiktoken with "cl100k_base" encoding
 

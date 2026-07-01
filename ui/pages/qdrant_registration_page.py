@@ -230,7 +230,7 @@ def show_qdrant_registration_page():
                 add_log("🔢 Dense埋め込み生成開始")
                 texts = build_inputs_for_embedding(df, include_answer)
                 vectors = embed_texts_for_qdrant(
-                    texts, model="gemini-embedding-001"  # model引数は互換性のため残るが内部でprovider使用
+                    texts, model="text-embedding-3-large"  # model引数は互換性のため残るが内部でprovider使用
                 )
                 add_log(f"✅ {len(vectors)} 件のDense埋め込みを生成しました")
 

@@ -150,7 +150,7 @@ def register_to_qdrant(
         text_col: Optional[str] = None,
         domain: Optional[str] = None,
         max_docs: Optional[int] = None,
-        provider: str = "gemini",
+        provider: str = "openai",
         normalize_filename: bool = True,
         create_ui_csv: bool = True,
         ui_output_dir: str = "qa_output",
@@ -333,7 +333,7 @@ def register_to_qdrant(
                 if provider == "gemini":
                     point.payload["embedding_model"] = "gemini-embedding-001"
                 elif provider == "openai":
-                    point.payload["embedding_model"] = "text-embedding-3-small"
+                    point.payload["embedding_model"] = "text-embedding-3-large"
 
             # D. Qdrantへアップサート
             upsert_points_to_qdrant(client, collection_name, points)
@@ -476,9 +476,9 @@ def main():
     vector_group.add_argument(
         "--provider",
         type=str,
-        default="gemini",
+        default="openai",
         choices=["gemini", "openai"],
-        help="Embeddingに使用するプロバイダー（デフォルト: gemini）"
+        help="Embeddingに使用するプロバイダー（デフォルト: openai）"
     )
 
     # ================================================================

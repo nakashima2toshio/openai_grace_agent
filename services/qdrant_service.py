@@ -846,23 +846,28 @@ def embed_query_for_search(
     検索クエリをベクトル化
 
     次元数(dims)またはモデル名(model)に基づいてプロバイダーを自動選択します。
-    [MIGRATION] デフォルトを gemini-embedding-001 → text-embedding-3-large に変更
+    [MIGRATION] デフォルトを gemini-embedding-001 → text-embedding-3-large に変更。
+    text-embedding-3-large は 3072 次元 (gemini-embedding-001 と同一) なので、
+    dims==3072 は "openai" にマップする。"gemini" はモデル名に "gemini" を含む場合、
+    または dims==768 (gemini の 768 オプション) の場合のみ選択する。
     """
     # デフォルトはOpenAI
     provider = "openai"
 
     # 次元数による判定
-    if dims == 1536:
+    if dims == 1536 or dims == 3072:
+        # 1536: text-embedding-3-small, 3072: text-embedding-3-large (どちらも OpenAI)
         provider = "openai"
-    elif dims == 3072 or dims == 768:
+    elif dims == 768:
         provider = "gemini"
 
     # モデル名による判定 (次元数が指定されていない場合のフォールバック)
     elif model:
-        if "text-embedding-3" in model or "text-embedding-ada" in model:
-            provider = "openai"
-        elif "gemini" in model:
+        if "gemini" in model:
             provider = "gemini"
+        else:
+            # text-embedding-3 / text-embedding-ada を含むデフォルトは OpenAI
+            provider = "openai"
 
     logger.info(f"embed_query_for_search: query='{query}', model='{model}', dims={dims} -> provider='{provider}'")
 
