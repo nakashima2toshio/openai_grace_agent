@@ -65,6 +65,9 @@ class ConfidenceFactors:
     # クエリ関連
     query_coverage: float = 0.0  # クエリへの回答網羅度
 
+    # S1: 根拠妥当性（groundedness）支持率（最終回答の主張が引用ソースに支持される割合）
+    groundedness: float = 0.0
+
     # ステップタイプ
     is_search_step: bool = False  # 検索ステップかどうか
 
@@ -850,6 +853,117 @@ class QueryCoverageCalculator:
 
 
 # =============================================================================
+# Groundedness Verifier （S1: 根拠妥当性検証）
+# =============================================================================
+
+class ClaimVerdict(BaseModel):
+    """1主張あたりの根拠判定。"""
+    claim: str = Field("", description="回答から抽出した主張（短文）")
+    verdict: Literal["supported", "contradicted", "neutral"] = Field(
+        "neutral",
+        description="引用ソースが主張を支持(supported)/矛盾(contradicted)/無関係(neutral)のいずれか",
+    )
+
+
+class GroundednessResponse(BaseModel):
+    """groundedness 検証のLLM応答スキーマ。"""
+    claims: List[ClaimVerdict] = Field(default_factory=list)
+    reason: str = Field("", description="判定理由の要約")
+
+
+@dataclass
+class GroundednessResult:
+    """groundedness 検証の集計結果。"""
+    support_rate: float          # supported / 判定対象主張数（0-1）
+    supported: int
+    contradicted: int
+    total: int                   # supported + contradicted + neutral
+    has_contradiction: bool
+    verified: bool               # ソースがあり検証を実施できたか
+    reason: str = ""
+
+
+class GroundednessVerifier:
+    """最終回答の各主張が引用ソースに支持されるか（entailment）をLLM判定する。
+
+    S1 の中核。支持率(support_rate)を信頼度の主成分に用いることで、
+    「検索スコアの言い換え」だった confidence を根拠妥当性ベースへ移行する。
+
+    [MIGRATION anthropic→openai] LLM 呼び出しは create_llm_client("openai") 経由の
+    generate_structured（Structured Outputs）に置換。gpt-5 系の制約に配慮し
+    temperature は送らず max_completion_tokens で出力枠を確保する。
+    """
+
+    PROMPT = """あなたは厳密なファクトチェッカーです。
+【回答】を短い主張（claim）に分解し、各主張が【情報源】によって
+支持されるか判定してください。判定は次の3値のみです。
+
+- supported   : 情報源の記述から主張が読み取れる（含意される）
+- contradicted: 情報源と主張が矛盾する
+- neutral     : 情報源に関連記述がなく判断できない
+
+あなた自身の事前知識は使わず、提示された【情報源】のみを根拠にしてください。
+
+# 質問
+{query}
+
+# 回答
+{answer}
+
+# 情報源
+{sources}
+"""
+
+    def __init__(self, config: Optional[GraceConfig] = None,
+                 model_name: Optional[str] = None):
+        self.config = config or get_config()
+        self.model_name = model_name or self.config.llm.model
+        self.llm = create_llm_client("openai", default_model=self.model_name)
+        logger.info(f"GroundednessVerifier initialized with model: {self.model_name}")
+
+    def verify(self, query: str, answer: str,
+               sources: Optional[List[str]] = None) -> GroundednessResult:
+        """根拠妥当性を検証する。ソースが無い／LLM失敗時は verified=False を返す。"""
+        if not answer or not answer.strip():
+            return GroundednessResult(0.0, 0, 0, 0, False, False, "empty answer")
+        if not sources:
+            # 引用ソースが無い回答は検証不能（未検証）
+            return GroundednessResult(0.0, 0, 0, 0, False, False, "no sources")
+
+        sources_text = "\n\n".join(f"[{i + 1}] {s}" for i, s in enumerate(sources))
+        prompt = self.PROMPT.format(query=query, answer=answer, sources=sources_text)
+
+        try:
+            parsed: GroundednessResponse = self.llm.generate_structured(
+                prompt,
+                response_schema=GroundednessResponse,
+                max_completion_tokens=1024,  # gpt-5系は推論トークンを先に消費（anthropic基準=1024）
+            )
+            if parsed is None:
+                return GroundednessResult(0.0, 0, 0, 0, False, False, "empty response")
+
+            supported = sum(1 for c in parsed.claims if c.verdict == "supported")
+            contradicted = sum(1 for c in parsed.claims if c.verdict == "contradicted")
+            total = len(parsed.claims)
+            # 判定対象（supported + contradicted）に対する支持率。
+            # neutral は「根拠なし」として支持率の分母には含めるが分子には入れない。
+            decided = supported + contradicted
+            support_rate = (supported / decided) if decided > 0 else 0.0
+            return GroundednessResult(
+                support_rate=round(support_rate, 4),
+                supported=supported,
+                contradicted=contradicted,
+                total=total,
+                has_contradiction=contradicted > 0,
+                verified=total > 0,
+                reason=parsed.reason or "",
+            )
+        except Exception as e:  # 検証失敗は評価を止めない（未検証扱い）
+            logger.warning(f"Groundedness verification failed: {e}")
+            return GroundednessResult(0.0, 0, 0, 0, False, False, f"error: {e}")
+
+
+# =============================================================================
 # Confidence Aggregator
 # =============================================================================
 
@@ -969,6 +1083,14 @@ def create_query_coverage_calculator(
     return QueryCoverageCalculator(config=config, model_name=model_name)
 
 
+def create_groundedness_verifier(
+        config: Optional[GraceConfig] = None,
+        model_name: Optional[str] = None
+) -> GroundednessVerifier:
+    """GroundednessVerifierインスタンスを作成"""
+    return GroundednessVerifier(config=config, model_name=model_name)
+
+
 def create_confidence_aggregator(
         config: Optional[GraceConfig] = None
 ) -> ConfidenceAggregator:
@@ -998,12 +1120,19 @@ __all__ = [
     "LLMSelfEvaluator",
     "SourceAgreementCalculator",
     "QueryCoverageCalculator",
+    "GroundednessVerifier",
     "ConfidenceAggregator",
+
+    # Groundedness schemas
+    "ClaimVerdict",
+    "GroundednessResponse",
+    "GroundednessResult",
 
     # Factory functions
     "create_confidence_calculator",
     "create_llm_evaluator",
     "create_source_agreement_calculator",
     "create_query_coverage_calculator",
+    "create_groundedness_verifier",
     "create_confidence_aggregator",
 ]
