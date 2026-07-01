@@ -83,6 +83,8 @@ class ExecutionState:
     end_time: Optional[float] = None
     # P4: 実行中に使用した RAG コレクション（実行メモリ記録用）
     used_collections: List[str] = field(default_factory=list)
+    # ベンチマーク計測用: web_search（計画/動的挿入いずれか）が実際に実行されたか
+    web_search_executed: bool = False
 
     def __post_init__(self):
         """初期化後の処理"""
@@ -990,6 +992,7 @@ class Executor:
 
         state.current_step_id = web_step_id
         state.step_statuses[web_step_id] = StepStatus.RUNNING
+        state.web_search_executed = True  # ベンチマーク計測用（動的挿入 web_search）
 
         if self.on_step_start:
             self.on_step_start(web_step)
@@ -1472,6 +1475,25 @@ class Executor:
                     final_answer = result.output
                     break
 
+        # ベンチマーク計測用の集計（rag_max_score / rag_search_count / web_search_used）
+        executed_ids = set(state.step_results.keys())
+        rag_step_ids = {s.step_id for s in state.plan.steps if s.action == "rag_search"}
+        # StepResult.output は表示用整形済みのため、生スコアは
+        # step_confidence_scores の factors.search_max_score から取得する。
+        rag_max_score: Optional[float] = None
+        for sid in rag_step_ids:
+            cs = self.step_confidence_scores.get(sid)
+            factors = getattr(cs, "factors", None) if cs else None
+            score = getattr(factors, "search_max_score", None) if factors else None
+            if score is not None:
+                rag_max_score = score if rag_max_score is None else max(rag_max_score, score)
+        rag_search_count = len(rag_step_ids & executed_ids)
+        # 計画上の web_search 実行に加え、動的挿入された web_search も拾う。
+        web_search_used = any(
+            s.action == "web_search" and s.step_id in executed_ids
+            for s in state.plan.steps
+        ) or getattr(state, "web_search_executed", False)
+
         return ExecutionResult(
             plan_id=state.plan.plan_id or create_plan_id(),
             original_query=state.plan.original_query,
@@ -1483,6 +1505,9 @@ class Executor:
             total_execution_time_ms=state.get_execution_time_ms(),
             total_token_usage=None,
             total_cost_usd=None,
+            rag_max_score=rag_max_score,
+            rag_search_count=rag_search_count,
+            web_search_used=web_search_used,
         )
 
     def cancel(self, state: ExecutionState):
