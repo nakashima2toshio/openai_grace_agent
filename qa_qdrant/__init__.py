@@ -65,8 +65,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gemini-2.0-flash",
-        help="使用するGeminiモデル"
+        default="gpt-5-mini",
+        help="使用するLLMモデル（デフォルト: gpt-5-mini）"
     )
     parser.add_argument(
         "--output",
@@ -166,8 +166,8 @@ def main():
     args = parser.parse_args()
 
     # APIキー確認
-    if not os.getenv("GOOGLE_API_KEY"):
-        logger.error("GOOGLE_API_KEYが設定されていません")
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.error("OPENAI_API_KEYが設定されていません")
         sys.exit(1)
 
     # ================================================================

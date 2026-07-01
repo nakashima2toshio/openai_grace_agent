@@ -11,8 +11,9 @@ description: >-
 
 # grace_agent テスト保守スキル
 
-`uv run pytest tests/` の失敗・収集エラー・警告を直すための知見。移行（Gemini→Anthropic/OpenAI）に伴う
+`uv run pytest tests/` の失敗・収集エラー・警告を直すための知見。移行（Gemini→OpenAI）に伴う
 **テスト負債**が大半で、原則 **テストのみ修正**（本番コードは現行を正とする。疑わしければ報告）。
+本リポジトリ（`openai_grace_agent`）は **OpenAI API の利用が正**（LLM・Embedding とも OpenAI）。
 
 ## 実行・検証
 - 依存は `uv run` で解決可能（`uv run pytest tests/ -q`）。`pyproject.toml` に `pythonpath=["."]`。
@@ -26,14 +27,14 @@ description: >-
    - `build_points_for_qdrant`/`get_collection_embedding_params` は `services.qdrant_service`。
    - 削除済みモジュール（`qa_generation.{content,generation,keyword_extraction,structure}`、`register_qdrant`）参照のテストは**廃止＝削除**（要・削除確認）。
 2. **旧 patch ターゲット（移行残骸）**
-   - `patch("...genai")` / `google.generativeai`（旧SDK・未インストール）→ 新SDK `google.genai`。helper_llm はモジュール直下 `genai` を持つので `helper.helper_llm.genai` を patch。
-   - helper_embedding の Gemini はメソッド内 `from google import genai`→ `google.genai.Client` を patch。
-   - `services.agent_service.genai`/`.QdrantClient` は廃止。現行は `create_llm_client("anthropic")`（`agent.llm`）・`get_qdrant_client()`・tool は `search_rag_knowledge_base_cached`。LLM応答は `ToolUseResponse(text, tool_calls, stop_reason, assistant_message)`。
+   - `patch("...genai")` / `google.generativeai`（旧SDK・未インストール）→ 後方互換分岐が残る場合のみ `google.genai`。現行の LLM/Embedding は OpenAI SDK 経路が正で、`helper.helper_llm` / `helper.helper_embedding` の OpenAI クライアント（`OpenAIClient` の `response.usage`）を patch する。
+   - Embedding は OpenAI（`create_embedding_client("openai")` / `text-embedding-3-large` / 3072次元）が現行。Gemini 経路はテスト対象外（後方互換で残る場合のみ）。
+   - `services.agent_service.genai`/`.QdrantClient` は廃止。現行は `create_llm_client("openai")`（`agent.llm`）・`get_qdrant_client()`・tool は `search_rag_knowledge_base_cached`。
 3. **既定値ドリフト（期待値を現行へ）**
-   - モデル既定 `gemini-2.0-flash`→`claude-sonnet-4-6`。
+   - モデル既定 `gemini-2.0-flash`→`gpt-5-mini`。
    - OpenAI埋め込み次元 1536→3072。`SemanticCoverage.embedding_model` は `text-embedding-3-large`。
-   - `config_service`: env override は `ANTHROPIC_API_KEY`→`api.anthropic_api_key`（`OPENAI_API_KEY` はマップしない）。
-   - ValueError メッセージ `"ANTHROPIC_API_KEY is not set"`。
+   - `config_service`: env override は `OPENAI_API_KEY`→`api.openai_api_key`（`ANTHROPIC_API_KEY`/`GOOGLE_API_KEY` は後方互換で残るがマップは任意）。
+   - ValueError メッセージ（OpenAI 経路）`"OPENAI_API_KEY is not set"`。
 4. **削除された挙動**
    - `smart_qa_generator` の2段階フォールバック廃止 → 構造化失敗時は `success=False`/空。
    - `map_collection_to_csv` は完全一致のみ（`qa_` prefix strip 廃止 → 無ければ None）。
@@ -46,7 +47,7 @@ description: >-
 
 ## 統合テストは「未起動でskip」
 - Qdrant: `socket` で `QDRANT_HOST`/`QDRANT_PORT`(既定 localhost:6333) に短timeout接続できなければ `pytest.mark.skipif` でモジュールごとskip。
-- 実API: `skipif(not os.getenv("ANTHROPIC_API_KEY"/"GOOGLE_API_KEY"))`。ユニットは可能なら mock 化を優先。
+- 実API: `skipif(not os.getenv("OPENAI_API_KEY"))`（LLM・Embedding とも OpenAI）。ユニットは可能なら mock 化を優先。
 
 ## その他
 - 欠落フィクスチャ → `tests/<dir>/conftest.py` を追加（複数タスクで同じ conftest を触るなら read-first で追記、clobber禁止）。

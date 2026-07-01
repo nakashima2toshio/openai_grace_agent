@@ -48,7 +48,7 @@ except ImportError:
         HEALTH_CHECK_ENDPOINT = "/collections"
         DEFAULT_TIMEOUT = 30
         DEFAULT_VECTOR_SIZE = 3072
-        DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
+        DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 
 # ログ設定
 logger = logging.getLogger(__name__)
@@ -96,8 +96,8 @@ PROVIDER_DEFAULTS = {
         "dims" : DEFAULT_GEMINI_EMBEDDING_DIMS,  # 3072
     },
     "openai"   : {
-        "model": "text-embedding-3-small",
-        "dims" : DEFAULT_OPENAI_EMBEDDING_DIMS,  # 1536
+        "model": "text-embedding-3-large",  # [MIGRATION] small → large（3072次元・既定Embedding）
+        "dims" : DEFAULT_OPENAI_EMBEDDING_DIMS,  # 3072
     },
     "fastembed": {
         "model": "BAAI/bge-small-en-v1.5",

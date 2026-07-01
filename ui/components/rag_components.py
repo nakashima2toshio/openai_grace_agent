@@ -208,7 +208,7 @@ def show_usage_instructions(dataset_type: str) -> None:
 
     ### 🎯 RAG最適化の特徴
     - **自然な文章結合**: ラベルなしで読みやすい文章として結合
-    - **Gemini Embedding対応**: `gemini-embedding-001`等に最適化
+    - **OpenAI Embedding対応**: `text-embedding-3-large`（3072次元）に最適化
     - **検索性能向上**: 意味的検索の精度向上
 
     ### 💡 推奨モデル

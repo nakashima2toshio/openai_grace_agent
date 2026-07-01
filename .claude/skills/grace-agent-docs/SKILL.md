@@ -11,7 +11,7 @@ description: >-
 
 # grace_agent ドキュメント作成スキル
 
-日本語RAG/GRACEプロジェクト群（`anthropic_grace_agent` ほか）のモジュールドキュメントを、
+日本語RAG/GRACEプロジェクト群（本リポジトリは `openai_grace_agent`）のモジュールドキュメントを、
 プロジェクト規約どおりに作成・最新化するための知見。
 
 ## 1. フォーマット仕様（必読）
@@ -42,9 +42,11 @@ description: >-
 - 検証（grep）: 各ファイルで `flowchart|graph` の数 == `classDef default fill:#000` の数、`sequenceDiagram` の数 == `%%{ init` の数。
 
 ## 3. 技術スタック表記の統一（CLAUDE.md §9.1）
-- LLM = **Anthropic Claude**、既定 `claude-sonnet-4-6`（軽量 `claude-haiku-4-5-20251001`）。鍵 `ANTHROPIC_API_KEY`。
-- Embedding = **Gemini** `gemini-embedding-001`（3072次元）。鍵 `GOOGLE_API_KEY`/`GEMINI_API_KEY`。
-- LLM設定クラスは `ModelConfig`。`text-embedding-3-*` を LLM/本番Embedding用途で書かない。
+- 本リポジトリ（`openai_grace_agent`）は **OpenAI API の利用が正**。LLM・Embedding とも OpenAI を使う。
+- LLM = **OpenAI GPT**、既定 `gpt-5-mini`（軽量 `gpt-5-nano`）。鍵 `OPENAI_API_KEY`。
+- Embedding = **OpenAI Embedding** `text-embedding-3-large`（3072次元）。鍵 `OPENAI_API_KEY`。
+- LLM/Embedding クライアントは `create_llm_client("openai")` / `create_embedding_client("openai")`。Qdrant コレクションは `*_openai`。
+- LLM設定クラスは `ModelConfig`。`Anthropic Claude`/`Gemini` を既定・本番用途で書かない（後方互換の分岐が残る場合のみ言及可）。
 - モデル名マッピングを作らない（CRITICAL RULES）。`responses.parse()`/`create()` は両方正。
 
 ## 4. 実装との整合（重要）

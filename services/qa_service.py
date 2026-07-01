@@ -87,26 +87,26 @@ def generate_qa_pairs(
     text: str,
     dataset_type: str,
     chunk_id: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gpt-5-mini",
     qa_per_chunk: int = 3,
     log_callback=None,
 ) -> List[QAPair]:
     """
-    テキストからQ/Aペアを生成（Gemini API使用）
+    テキストからQ/Aペアを生成（OpenAI API使用）
 
     Args:
         text: 対象テキスト
         dataset_type: データセットタイプ
         chunk_id: チャンクID
-        model: 使用するモデル（デフォルト: gemini-2.0-flash）
+        model: 使用するモデル（デフォルト: gpt-5-mini）
         qa_per_chunk: チャンクあたりのQ/A数
         log_callback: ログコールバック関数
 
     Returns:
         Q/Aペアのリスト
     """
-    # Geminiクライアントを使用
-    client = create_llm_client(provider="gemini")
+    # OpenAIクライアントを使用
+    client = create_llm_client(provider="openai")
 
     prompt = f"""あなたは教育用Q/Aペア生成の専門家です。
 
@@ -125,7 +125,7 @@ JSON形式で出力してください。
 """
 
     try:
-        # Gemini構造化出力APIを使用
+        # OpenAI構造化出力APIを使用
         qa_response = client.generate_structured(
             prompt=prompt,
             response_schema=QAPairsResponse,

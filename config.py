@@ -345,8 +345,8 @@ class QdrantConfig:
     DOCKER_IMAGE: str = "qdrant/qdrant"
     HEALTH_CHECK_ENDPOINT: str = "/collections"
     DEFAULT_TIMEOUT: int = 30
-    DEFAULT_VECTOR_SIZE: int = 3072  # gemini-embedding-001 (MRL: 768/1536/3072)
-    DEFAULT_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    DEFAULT_VECTOR_SIZE: int = 3072  # text-embedding-3-large (3072次元)
+    DEFAULT_EMBEDDING_MODEL: str = "text-embedding-3-large"
 
 
 # ===================================================================
@@ -423,10 +423,10 @@ class GeminiConfig:
     # デフォルトモデル [MIGRATION] "gemini-3-flash-preview" → "gpt-5-mini"
     DEFAULT_MODEL: str = "gpt-5-mini"
 
-    # Embeddingモデル
-    EMBEDDING_MODEL: str = "gemini-embedding-001"
+    # Embeddingモデル [MIGRATION] "gemini-embedding-001" → "text-embedding-3-large"
+    EMBEDDING_MODEL: str = "text-embedding-3-large"
 
-    # Embedding次元数（3072: Gemini 3最大精度）
+    # Embedding次元数（3072: text-embedding-3-large 最大精度）
     EMBEDDING_DIMS: int = 3072
 
     # 思考レベル
@@ -508,8 +508,8 @@ class LLMProviderConfig:
     """LLMプロバイダー設定"""
 
     # デフォルトプロバイダー
-    DEFAULT_LLM_PROVIDER: str = "gemini"  # "openai" or "gemini"
-    DEFAULT_EMBEDDING_PROVIDER: str = "gemini"  # "openai" or "gemini"
+    DEFAULT_LLM_PROVIDER: str = "openai"  # "openai" or "gemini"
+    DEFAULT_EMBEDDING_PROVIDER: str = "openai"  # "openai" or "gemini"
 
     @classmethod
     def get_embedding_dims(cls, provider: Optional[str] = None) -> int:
