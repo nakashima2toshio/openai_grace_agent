@@ -62,6 +62,11 @@ class RAGSearchTool(BaseTool):
     name = "rag_search"
     description = "ベクトルDBから関連情報を検索"
 
+    # 有効コレクション（次元一致・実体あり）のプロセス内キャッシュ。
+    # キーは "<qdrant_url>@<embedding_dim>"。RAGSearchTool はクエリ毎・リプラン毎に
+    # 再生成されるため、インスタンス単位ではなくクラス単位でキャッシュする。
+    _VALID_COLLECTIONS_CACHE: Dict[str, List[str]] = {}
+
     def __init__(
             self,
             config: Optional[GraceConfig] = None,
@@ -132,12 +137,21 @@ class RAGSearchTool(BaseTool):
         if collection:
             search_candidates.append(collection)
 
-        # フォールバック用のコレクションを追加（重複排除・動的取得）
-        # Qdrantから全コレクションを取得し、優先順位リストに従ってソート
-        dynamic_collections = self._get_all_collections_dynamic()
-        for c in dynamic_collections:
-            if c not in search_candidates:
-                search_candidates.append(c)
+        if self.config.qdrant.restrict_to_collection:
+            # 単一コレクション固定モード: 全コレクション横断のフォールバックを行わない。
+            # 明示指定が無い場合は config.qdrant.collection_name を使う。
+            if not search_candidates:
+                search_candidates.append(self.config.qdrant.collection_name)
+            logger.info(
+                f"RAGSearchTool: restrict_to_collection=ON → 単一検索: {search_candidates}"
+            )
+        else:
+            # フォールバック用のコレクションを追加（重複排除・動的取得）
+            # Qdrantから全コレクションを取得し、優先順位リストに従ってソート
+            dynamic_collections = self._get_all_collections_dynamic()
+            for c in dynamic_collections:
+                if c not in search_candidates:
+                    search_candidates.append(c)
 
         logger.info(f"RAGSearchTool: Search candidates: {search_candidates}")
 
@@ -236,37 +250,93 @@ class RAGSearchTool(BaseTool):
             execution_time_ms=execution_time
         )
 
-    def _get_all_collections_dynamic(self) -> List[str]:
-        """Qdrantから全コレクション一覧を動的に取得し、優先順位付けして返す"""
+    def _collection_dense_dim(self, name: str) -> Optional[int]:
+        """指定コレクションの密ベクトル次元を返す（取得不可なら None）。
+
+        無名ベクトル（VectorParams）・名前付きベクトル（dict）双方に対応する。
+        """
         try:
-            # Qdrantからコレクション一覧を取得
+            info = self.client.get_collection(name)
+            vectors = info.config.params.vectors
+            if vectors is None:
+                return None
+            size = getattr(vectors, "size", None)
+            if size is not None:
+                return int(size)
+            if isinstance(vectors, dict):
+                for v in vectors.values():
+                    s = getattr(v, "size", None)
+                    if s is not None:
+                        return int(s)
+            return None
+        except Exception as e:
+            logger.warning(f"RAGSearchTool: get_collection('{name}') failed: {e}")
+            return None
+
+    def _get_all_collections_dynamic(self) -> List[str]:
+        """Qdrantから検索可能なコレクションを取得し、優先順位付けして返す。
+
+        embedding次元と一致し、かつ実体（points>0）があるコレクションだけを採用する。
+        これにより、次元不一致（例: 1536次元コレクションへ3072次元クエリ）による
+        毎回の 400 Bad Request や、空コレクションへの無駄な検索を排除する。
+        結果はプロセス内にキャッシュし、ステップ毎の re-scan を避ける。
+        """
+        embed_dim = getattr(self.config.embedding, "dimensions", None)
+        cache_key = f"{self.qdrant_url}@{embed_dim}"
+        cached = RAGSearchTool._VALID_COLLECTIONS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        try:
             collections_response = self.client.get_collections()
             all_collections = [c.name for c in collections_response.collections]
 
-            # 設定ファイルの優先順位を取得
+            valid_collections: List[str] = []
+            skipped: List[str] = []
+            for name in all_collections:
+                dim = self._collection_dense_dim(name)
+                # 次元が取得でき、embedding次元と不一致なら除外
+                if embed_dim is not None and dim is not None and dim != embed_dim:
+                    skipped.append(f"{name}(dim={dim})")
+                    continue
+                # 実体が無い（空）コレクションは除外
+                try:
+                    count = self.client.count(name, exact=False).count
+                    if count == 0:
+                        skipped.append(f"{name}(empty)")
+                        continue
+                except Exception:
+                    # count に失敗しても検索候補としては残す
+                    pass
+                valid_collections.append(name)
+
+            if skipped:
+                logger.info(f"RAGSearchTool: 検索対象外コレクション（次元不一致/空）: {skipped}")
+
+            # 優先順位: priority_listのキーワードを部分一致でソート
             priority_list = self.config.qdrant.search_priority
-
-            # 優先順位リストにあるものを先に、それ以外を後に配置
-            sorted_collections = []
-
-            # 1. 優先順位リストにあるものを追加（存在チェック付き）
-            for c in priority_list:
-                if c in all_collections:
-                    sorted_collections.append(c)
-
-            # 2. 残りのコレクションを追加
-            for c in all_collections:
+            sorted_collections: List[str] = []
+            for keyword in priority_list:
+                for c in valid_collections:
+                    if keyword in c and c not in sorted_collections:
+                        sorted_collections.append(c)
+            for c in valid_collections:
                 if c not in sorted_collections:
                     sorted_collections.append(c)
 
-            logger.info(f"RAGSearchTool: Dynamic collections list: {sorted_collections}")
+            RAGSearchTool._VALID_COLLECTIONS_CACHE[cache_key] = list(sorted_collections)
+            logger.info(f"RAGSearchTool: 有効コレクション一覧（次元={embed_dim}）: {sorted_collections}")
             return sorted_collections
 
         except Exception as e:
-            logger.error(f"Failed to get collections dynamically: {e}", exc_info=True)  # エラーログ強化
-            print(f"❌ Failed to get collections dynamically: {e}")  # コンソールにも出力
-            # 失敗時は設定ファイルの値をそのまま返す
-            return self.config.qdrant.search_priority
+            logger.error(f"Failed to get collections dynamically: {e}", exc_info=True)
+            print(f"❌ Failed to get collections dynamically: {e}")
+            return list(self.config.qdrant.search_priority)
+
+    @classmethod
+    def clear_collections_cache(cls) -> None:
+        """有効コレクションのキャッシュをクリアする（テスト・再登録後用）。"""
+        cls._VALID_COLLECTIONS_CACHE.clear()
 
     def _calculate_confidence_factors(self, scores: List[float]) -> Dict[str, Any]:
         """Confidence計算用の統計情報を算出"""
