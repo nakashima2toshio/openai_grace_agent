@@ -12,6 +12,7 @@ GRACE Planner - 計画生成エージェント
 """
 
 import logging
+import re
 from typing import Optional
 
 from qdrant_client import QdrantClient
@@ -33,6 +34,37 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# 指示語で対象が未特定の「曖昧クエリ」を表すパターン（例: 「あの件について教えて」）。
+_AMBIGUOUS_REFERENT_PATTERNS = (
+    "あの件", "その件", "この件", "例の件", "あの話", "その話", "例の話",
+    "あれについて", "それについて", "あの問題", "その問題",
+)
+# 対象が曖昧になりやすい指示語（単独では曖昧と断定しない。具体的手がかりが無い場合のみ）。
+_DEMONSTRATIVES = ("あの", "その", "あれ", "それ", "例の", "先日の", "この間の")
+
+
+def is_ambiguous_query(query: str) -> bool:
+    """指示語のみで対象が特定できない「曖昧クエリ」かどうかを判定する。
+
+    例: 「あの件について詳しく教えて」→ True（何の件か不明）。
+    一方、固有名詞・数字・カタカナ語などの具体的手がかりを含むクエリは False。
+    曖昧クエリは検索しても無関係チャンクが当たるだけなので、プランナー段で検知して
+    ask_user（確認）経路へ振り分ける。
+    """
+    q = (query or "").strip()
+    if not q:
+        return True
+    # 1. 「あの件」等、未解決の指示対象を明示するパターン
+    if any(p in q for p in _AMBIGUOUS_REFERENT_PATTERNS):
+        return True
+    # 2. 指示語を含み、かつ具体的な手がかり（英数字 / 3文字以上のカタカナ語）が無く短い
+    has_concrete = bool(re.search(r"[A-Za-z0-9０-９]", q)) or bool(re.search(r"[ァ-ヴ]{3,}", q))
+    has_demonstrative = any(d in q for d in _DEMONSTRATIVES)
+    if has_demonstrative and not has_concrete and len(q) <= 30:
+        return True
+    return False
 
 # =============================================================================
 # プロンプト定義（変更なし）
@@ -170,6 +202,12 @@ class Planner:
             ExecutionPlan: 実行計画
         """
         logger.info(f"Creating execution plan for: {query[:50]}...")
+
+        # 曖昧クエリ（指示語のみで対象不明）は検索しても無関係チャンクが当たるだけ
+        # なので、ask_user（確認）経路へ振り分ける。
+        if is_ambiguous_query(query):
+            logger.info("Ambiguous query detected → clarification (ask_user) plan")
+            return self._create_clarification_plan(query)
 
         heuristic_complexity = self.estimate_complexity(query)
 
@@ -427,6 +465,37 @@ class Planner:
         except Exception as e:
             logger.warning(f"Failed to get collections: {e}")
             return self.config.qdrant.search_priority
+
+    def _create_clarification_plan(self, query: str) -> ExecutionPlan:
+        """曖昧クエリに対する確認（ask_user）計画を生成する。
+
+        検索・推論は行わず、ユーザーに対象の明確化を求める単一 ask_user ステップ。
+        requires_confirmation=True とし、Executor 側で最終回答なし（明確化要求）→
+        低信頼（ESCALATE 帯）として介入レベルが CONFIRM/ESCALATE になる。
+        """
+        return ExecutionPlan(
+            original_query=query,
+            complexity=0.2,
+            estimated_steps=1,
+            requires_confirmation=True,
+            steps=[
+                PlanStep(
+                    step_id=1,
+                    action="ask_user",
+                    description="質問が曖昧なため、対象の明確化を求める",
+                    query=(
+                        "ご質問の対象が特定できませんでした。"
+                        "どの件・どのトピックについてか、具体的に教えてください。"
+                    ),
+                    collection=None,
+                    expected_output="ユーザーによる質問の明確化",
+                    fallback=None,
+                    timeout_seconds=30,
+                )
+            ],
+            success_criteria="曖昧な質問に対し、確認（明確化）を求められていること",
+            plan_id=create_plan_id(),
+        )
 
     def _create_fallback_plan(self, query: str) -> ExecutionPlan:
         """

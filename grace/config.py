@@ -148,6 +148,10 @@ class QdrantConfig(BaseModel):
     search_limit: int = 5
     score_threshold: float = 0.35
     rag_sufficient_score: float = 0.7  # RAG結果が十分と判断するスコア閾値（これ未満ならweb_searchを動的実行）
+    # True の場合、RAG検索を collection_name（または明示指定コレクション）の
+    # 1コレクションのみに限定し、全コレクション横断のフォールバックを行わない。
+    # ベンチマーク等でアクセス回数を最小化したい場合に使用する。
+    restrict_to_collection: bool = False
     search_priority: list = Field(default_factory=lambda: ["wikipedia_ja", "livedoor", "cc_news", "japanese_text"])
 
 
