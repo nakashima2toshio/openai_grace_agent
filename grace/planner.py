@@ -24,6 +24,7 @@ from services.prompts import SEARCH_QUERY_INSTRUCTION
 from services.qdrant_service import get_all_collections
 
 from .config import GraceConfig, get_config
+from .memory import create_execution_memory  # P4: 実行メモリ層（コレクション事前分布）
 from .schemas import (
     ExecutionPlan,
     PlanStep,
@@ -136,6 +137,11 @@ class Planner:
         # generate_structured() が Structured Outputs による構造化出力を隠蔽する
         self.llm = create_llm_client("openai", default_model=self.model_name)
 
+        # P4: 実行メモリ層（コレクション事前分布の学習）。memory.enabled=False で無効化。
+        self._memory = None
+        if getattr(self.config, "memory", None) and self.config.memory.enabled:
+            self._memory = create_execution_memory(self.config.memory.path)
+
         # KeywordExtractorの初期化（変更なし）
         try:
             self.keyword_extractor = KeywordExtractor(prefer_mecab=True)
@@ -187,6 +193,25 @@ class Planner:
 
         return heuristic_complexity >= self.config.planner.llm_plan_complexity_threshold
 
+    def _prioritized_collection(self, query: str) -> Optional[str]:
+        """P4: 実行メモリの事前分布から、この質問で当たりやすいコレクションを返す。
+
+        十分な実績が無ければ None（=全コレクション検索）を返す。
+        """
+        if self._memory is None:
+            return None
+        try:
+            mc = self.config.memory
+            best = self._memory.best_collection(
+                query=query, min_count=mc.min_count, min_score=mc.min_score
+            )
+            if best:
+                logger.info(f"[memory] prioritized collection for query: {best}")
+            return best
+        except Exception as e:
+            logger.warning(f"_prioritized_collection failed: {e}")
+            return None
+
     def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan:
         """
         ルールベースの標準2ステップ計画を生成（LLM呼び出しなし）
@@ -201,6 +226,12 @@ class Planner:
         Returns:
             ExecutionPlan: 標準2ステップ計画
         """
+        # P4: 実行メモリの事前分布で当たりやすいコレクションがあれば優先（無ければ全網羅）
+        prioritized = self._prioritized_collection(query)
+        rag_description = (
+            f"実行メモリの事前分布に基づき優先コレクション「{prioritized}」を検索"
+            if prioritized else "全コレクションから関連情報を検索"
+        )
         return ExecutionPlan(
             original_query=query,
             complexity=complexity,
@@ -210,9 +241,9 @@ class Planner:
                 PlanStep(
                     step_id=1,
                     action="rag_search",
-                    description="全コレクションから関連情報を検索",
+                    description=rag_description,
                     query=query,
-                    collection=None,
+                    collection=prioritized,
                     expected_output="関連するドキュメントや情報",
                     fallback="web_search",
                     timeout_seconds=30
