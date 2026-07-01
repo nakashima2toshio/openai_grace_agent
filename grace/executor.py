@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, cast
 
+from .calibration import Calibrator  # S1: confidence 較正
 from .confidence import (
     ActionDecision,
     ConfidenceFactors,
@@ -28,6 +29,7 @@ from .intervention import (
     InterventionResponse,
     create_intervention_handler,
 )
+from .memory import create_execution_memory  # P4: 実行メモリ層
 from .schemas import (
     ExecutionPlan,
     ExecutionResult,
@@ -79,6 +81,8 @@ class ExecutionState:
     max_replans: int = 3
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    # P4: 実行中に使用した RAG コレクション（実行メモリ記録用）
+    used_collections: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         """初期化後の処理"""
@@ -146,6 +150,15 @@ class Executor:
         self.llm_evaluator = create_llm_evaluator(config=self.config)
         self.query_coverage_calculator = create_query_coverage_calculator(config=self.config)
         self.confidence_aggregator = create_confidence_aggregator(config=self.config)
+
+        # S1: confidence 較正器（較正ファイルが無ければ恒等 T=1.0 = 無変換）
+        self._calibrator = Calibrator.load(
+            getattr(self.config.confidence, "calibration_path", "config/calibration.json")
+        )
+        # P4: 実行メモリ層（コレクション事前分布の学習）。memory.enabled=False で無効化。
+        self._memory = None
+        if getattr(self.config, "memory", None) and self.config.memory.enabled:
+            self._memory = create_execution_memory(self.config.memory.path)
 
         # コールバック
         self.on_step_start = on_step_start
@@ -400,6 +413,9 @@ class Executor:
             # 全体の信頼度を計算
             state.overall_confidence = self._calculate_overall_confidence(state)
             state.end_time = time.time()
+
+            # P4: 実行メモリへ記録（使用コレクションごとの成否・信頼度）
+            self._record_memory(state)
 
             # 最終結果
             return self._create_execution_result(state)
@@ -673,6 +689,12 @@ class Executor:
                     "type"   : "log",
                     "content": f"📝 【ツール実行結果: {step.action}】\n{out_display}"
                 }
+
+            # P4: 使用した RAG コレクションを実行メモリ用に記録
+            if step.action == "rag_search" and isinstance(tool_result.confidence_factors, dict):
+                uc = tool_result.confidence_factors.get("used_collection")
+                if uc and uc not in state.used_collections:
+                    state.used_collections.append(uc)
 
             # 実行時間
             execution_time = int((time.time() - start_time) * 1000)
@@ -1301,6 +1323,21 @@ class Executor:
         return str(output)
 
     def _calculate_overall_confidence(self, state: ExecutionState) -> float:
+        """全体の信頼度を計算し、S1 較正（temperature scaling）を適用して返す。
+
+        生の集約値は `_compute_raw_overall_confidence` が計算する。較正ファイルが
+        無い（既定）場合は恒等変換（T=1.0）なので挙動は変わらない。
+        """
+        raw = self._compute_raw_overall_confidence(state)
+        if not getattr(self.config.confidence, "calibration_enabled", True):
+            return round(min(1.0, max(0.0, raw)), 3)
+        calibrated = self._calibrator.transform(raw)
+        if not self._calibrator.is_identity():
+            logger.info(f"Calibrated confidence: {raw:.3f} -> {calibrated:.3f} "
+                        f"(T={self._calibrator.temperature})")
+        return round(min(1.0, max(0.0, calibrated)), 3)
+
+    def _compute_raw_overall_confidence(self, state: ExecutionState) -> float:
         """
         全体の信頼度を計算（ConfidenceAggregator + LLMSelfEvaluator使用）
 
@@ -1385,6 +1422,31 @@ class Executor:
         # フォールバック: 単純平均
         confidences = [r.confidence for r in state.step_results.values()]
         return sum(confidences) / len(confidences)
+
+    def _record_memory(self, state: ExecutionState) -> None:
+        """P4: 実行結果を実行メモリへ記録する（best-effort）。
+
+        使用したコレクションごとに (質問, 成否, overall_confidence) を蓄積し、
+        以降の Planner のコレクション優先順位に反映する。
+        """
+        if self._memory is None:
+            return
+        try:
+            statuses = [r.status for r in state.step_results.values()]
+            success = bool(statuses) and all(s == "success" for s in statuses)
+            collections = list(state.used_collections)
+            if not collections:
+                return  # コレクション未使用（web のみ等）は記録対象外
+            self._memory.record_many(
+                query=state.plan.original_query,
+                collections=collections,
+                success=success,
+                confidence=state.overall_confidence,
+            )
+            logger.info(f"[memory] recorded {len(collections)} collection outcome(s) "
+                        f"(success={success}, conf={state.overall_confidence:.2f})")
+        except Exception as e:  # 記録失敗は実行を止めない
+            logger.warning(f"_record_memory failed: {e}")
 
     def _create_execution_result(self, state: ExecutionState) -> ExecutionResult:
         """実行結果を生成"""
