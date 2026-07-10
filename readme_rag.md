@@ -1,8 +1,8 @@
 # RAG Q/A 生成・検索システム ドキュメント
 
-**Version 2.0** | 最終更新: 2026-02-16
+**Version 3.0** | 最終更新: 2026-07-10
 
-**Agent Graceの資料へ** [Agent Grace](README.md) | **ReActの資料へ** [ReAct](README_ReAct.md)
+**プロジェクト全体** [README.md](README.md) | **GRACE（Plan+Executor）詳細** [readme_autonomous_agent.md](readme_autonomous_agent.md) | **ReAct+Reflection詳細** [readme_react_reflection.md](readme_react_reflection.md)
 
 ---
 
@@ -32,45 +32,50 @@
 
 本システムは、日本語・英語ドキュメントから文章をチャンク分割し、チャンクからQ/Aペアを自動生成し、Qdrantベクトルデータベースで類似度検索・AI応答生成（RAG）を実現する統合アプリケーションです。
 
-中心となるモジュールは以下の2つです。
+LLM は **OpenAI GPT**（既定 `gpt-5-mini`）、Embedding は **OpenAI Embedding**（`text-embedding-3-large`, 3072次元）を使用します。
 
-- **チャンク分割**: `csv_text_to_chunks_text_csv.py` — LLMベースの3段階セマンティックチャンキング
-- **Q/A生成・Qdrant登録**: `make_qa_register_qdrant.py` — Q/Aペア自動生成からベクトルDB登録までの統合パイプライン
+パイプラインは以下の **3段階** に分離されています。
+
+- **① チャンク分割**: `chunking/csv_text_to_chunks_text_csv.py` — LLMベースの3段階セマンティックチャンキング（文書境界保証・manifest出力）
+- **② Q/A生成**: `qa_generation/pipeline.py`（`QAPipeline`）＋ `qa_generation/smart_qa_generator.py`（`SmartQAGenerator`・構造化出力1回/チャンク）
+- **③ Qdrant登録**: `qa_qdrant/make_qa_register_qdrant.py`（②＋③の統合CLI）／ `qa_qdrant/register_to_qdrant.py`（登録のみ）
 
 ### 主な責務
 
 - テキスト/CSVファイルのLLMベース意味的チャンク分割（3段階: 段落分割→意味的分割→連続性チェック）
-- チャンクからのQ/Aペア自動生成（SmartQAGenerator / Celery並列処理）
-- Gemini Embedding（`gemini-embedding-001`, 3072次元）によるベクトル化
+  - CSVは1行=1文書として文書境界を保持（`load_documents_from_csv` / `doc_id`）
+  - 連続性チェックは既定でルールベース（`continuity_mode="rule"`・LLM呼び出しなし）
+  - チャンク上限 `max_chunk_tokens=512`（Embedding入力上限対策）・manifest出力
+- チャンクからのQ/Aペア自動生成（SmartQAGenerator: LLMがQ/A数を0〜5個で動的決定 / Celery並列処理対応）
+- OpenAI Embedding（`text-embedding-3-large`, 3072次元）によるベクトル化
 - Qdrantベクトルデータベースへの登録・検索・RAG応答生成
 - カバレージ分析によるQ/A品質評価
 
 ### 各責務対応のモジュール
 
-
 | # | 責務                  | 対応モジュール                            | 説明                                               |
 | - | --------------------- | ----------------------------------------- | -------------------------------------------------- |
 | 1 | LLMベースチャンク分割 | `chunking/csv_text_to_chunks_text_csv.py` | 3段階非同期パイプライン（段落→意味→連続性）      |
-| 2 | Q/Aペア自動生成       | `qa_qdrant/make_qa_register_qdrant.py`    | Phase 1: QAPipeline経由でSmartQAGenerator使用      |
-| 3 | Qdrantベクトル登録    | `qa_qdrant/make_qa_register_qdrant.py`    | Phase 2: Embedding→コレクション作成→アップサート |
-| 4 | Embedding生成         | `services/qdrant_service.py`              | Gemini Embedding API（3072次元）                   |
-| 5 | ベクトル検索・RAG     | `qdrant_client_wrapper.py`                | Dense/Hybrid Search、3段階フォールバック           |
+| 2 | Q/Aペア自動生成       | `qa_generation/pipeline.py` ほか          | QAPipeline経由でSmartQAGenerator使用               |
+| 3 | Q/A生成＋Qdrant登録   | `qa_qdrant/make_qa_register_qdrant.py`    | Phase 1: Q/A生成 → Phase 2: Embedding→登録       |
+| 4 | Qdrant登録のみ        | `qa_qdrant/register_to_qdrant.py`         | Q/AペアCSV・汎用CSVの登録専用CLI                   |
+| 5 | Embedding生成         | `helper/helper_embedding.py`              | `create_embedding_client("openai")`（3072次元）    |
+| 6 | ベクトル検索・RAG     | `qdrant_client_wrapper.py`                | Dense/Hybrid Search、3段階フォールバック           |
 
 ### 主要機能一覧
 
-
-| 機能                       | 説明                                                          |
-| -------------------------- | ------------------------------------------------------------- |
-| `chunks_all_async()`       | テキストを3段階で意味的にチャンク化（asyncio並列処理）        |
-| `load_text_from_csv()`     | CSVファイルからテキストを読み込み（カラム自動検出）           |
-| `save_chunks_as_csv()`     | チャンクをメタデータ付きCSV + シンプルCSVで保存               |
-| `QAPipeline`               | Q/A生成パイプライン制御クラス（チャンク済みCSV専用）          |
-| `QAPipeline.run()`         | パイプライン実行（データ読込→チャンク変換→Q/A生成→保存）   |
-| `run_registration()`       | Q/AペアCSVからQdrant登録（Embedding→アップサート）           |
-| `combine_rows_to_chunks()` | CSV複数行を結合してチャンクCSVを作成                          |
-| `AsyncAPIClient`           | Gemini API非同期クライアント（Semaphore並列制御+リトライ）    |
-| `CheckpointManager`        | 3段階チャンク処理のチェックポイント管理（クラッシュ復旧対応） |
-| `search_collection()`      | Qdrantコレクション検索（Dense/Hybrid、3段階フォールバック）   |
+| 機能                          | 説明                                                              |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `chunks_all_async()`          | テキスト/文書リストを3段階で意味的にチャンク化（asyncio並列処理） |
+| `load_documents_from_csv()`   | CSVから文書リストを読み込み（1行=1文書、doc_id付与）              |
+| `save_chunks_as_csv()`        | チャンクをメタデータ付きCSV + シンプルCSVで保存                   |
+| `QAPipeline`                  | Q/A生成パイプライン制御クラス（チャンク済みCSV専用）              |
+| `QAPipeline.run()`            | パイプライン実行（データ読込→チャンク変換→Q/A生成→保存）       |
+| `SmartQAGenerator`            | 構造化出力1回/チャンクでQ/A数を動的決定（0〜5個）                 |
+| `run_registration()`          | Q/AペアCSVからQdrant登録（Embedding→アップサート）               |
+| `AsyncAPIClient`              | OpenAI API非同期クライアント（Semaphore並列制御+リトライ）        |
+| `CheckpointManager`           | 3段階チャンク処理のチェックポイント管理（クラッシュ復旧対応）     |
+| `search_collection()`         | Qdrantコレクション検索（Dense/Hybrid、3段階フォールバック）       |
 
 ---
 
@@ -84,13 +89,14 @@ flowchart TB
         APP["agent_rag.py<br/>統合Streamlitアプリ"]
         CLI_CHUNK["CLI: csv_text_to_chunks_text_csv.py"]
         CLI_QA["CLI: make_qa_register_qdrant.py"]
+        CLI_REG["CLI: register_to_qdrant.py"]
     end
 
     subgraph CHUNKING["チャンク分割モジュール"]
         CHUNK_MAIN["chunks_all_async()"]
         STEP1["Step1: 階層構造化<br/>段落分割"]
         STEP2["Step2: 意味的チャンキング"]
-        STEP3["Step3: 文脈連続性チェック"]
+        STEP3["Step3: 文脈連続性チェック<br/>既定: ルールベース"]
     end
 
     subgraph QA_PIPELINE["Q/A生成・登録モジュール"]
@@ -101,33 +107,43 @@ flowchart TB
     end
 
     subgraph EXTERNAL["外部サービス層"]
-        GEMINI_LLM["Gemini LLM API<br/>gemini-3-flash-preview"]
-        GEMINI_EMB["Gemini Embedding API<br/>gemini-embedding-001<br/>3072次元"]
+        OPENAI_LLM["OpenAI GPT API<br/>gpt-5-mini"]
+        OPENAI_EMB["OpenAI Embedding API<br/>text-embedding-3-large<br/>3072次元"]
         QDRANT["Qdrant Vector DB<br/>コサイン類似度"]
         REDIS["Redis<br/>Celeryブローカー"]
     end
 
     CLI_CHUNK --> CHUNK_MAIN
     CHUNK_MAIN --> STEP1 --> STEP2 --> STEP3
-    STEP1 --> GEMINI_LLM
-    STEP2 --> GEMINI_LLM
-    STEP3 --> GEMINI_LLM
+    STEP1 --> OPENAI_LLM
+    STEP2 --> OPENAI_LLM
 
     CLI_QA --> PIPELINE
     APP --> PIPELINE
-    PIPELINE --> SMART_QA --> GEMINI_LLM
+    PIPELINE --> SMART_QA --> OPENAI_LLM
     PIPELINE --> CELERY --> REDIS
-    PIPELINE --> REG
-    REG --> GEMINI_EMB
+    CLI_QA --> REG
+    CLI_REG --> REG
+    REG --> OPENAI_EMB
     REG --> QDRANT
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class APP,CLI_CHUNK,CLI_QA,CLI_REG,CHUNK_MAIN,STEP1,STEP2,STEP3,PIPELINE,SMART_QA,CELERY,REG,OPENAI_LLM,OPENAI_EMB,QDRANT,REDIS default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style CHUNKING fill:#1a1a1a,stroke:#fff,color:#fff
+style QA_PIPELINE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
 
 1. 入力データ（CSV/テキスト）を `csv_text_to_chunks_text_csv.py` で3段階チャンク分割
+   - CSVは1行=1文書として読み込み、チャンクが文書をまたいで結合されることはない（文書境界の保証）
+   - 出力は固定ファイル名 `<name>_chunks.csv`（`--timestamp` 指定時のみ日時サフィックス）＋ manifest JSON
 2. チャンクCSVを `make_qa_register_qdrant.py` に入力
 3. Phase 1: `QAPipeline` → `SmartQAGenerator` でQ/Aペアを自動生成（Celery並列処理対応）
-4. Phase 2: `run_registration()` でQ/AペアをGemini Embeddingでベクトル化
+4. Phase 2: `run_registration()` でQ/AペアをOpenAI Embedding（`text-embedding-3-large`）でベクトル化
+   - ベクトル化対象は **question のみ**（answer はペイロードに保持。質問クエリでの類似度低下を防止）
 5. Qdrantコレクションにアップサート登録
 6. ユーザー質問 → Embedding → Qdrant検索 → RAG応答生成
 
@@ -137,86 +153,109 @@ flowchart TB
 
 ### チャンク分割パッケージ（chunking/）
 
-
-| ファイル名                       | クラス名            | メソッド/関数名               | 機能概要                                                   |
-| -------------------------------- | ------------------- | ----------------------------- | ---------------------------------------------------------- |
-| `csv_text_to_chunks_text_csv.py` | -                   | `chunks_all_async()`          | テキストを3段階で意味的にチャンク化（メインエントリ）      |
-| `csv_text_to_chunks_text_csv.py` | -                   | `load_text_from_csv()`        | CSVファイルからテキストを読み込み（カラム自動検出）        |
-| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_csv()`        | チャンクをメタデータ付きCSVで保存（+シンプルCSV同時出力）  |
-| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_simple_csv()` | チャンクをシンプルCSV（Textカラムのみ）で保存              |
-| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_text()`       | チャンクをテキスト形式で保存（後方互換）                   |
-| `csv_text_to_chunks_text_csv.py` | -                   | `generate_output_filename()`  | 入力ファイル名+タイムスタンプから出力ファイル名を自動生成  |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_step1_hierarchical_split()` | Step1: 階層構造化（段落分割） — LLMで空行ベースの段落分離 |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_step2_semantic_chunking()`  | Step2: 意味的チャンキング — 段落を意味単位に再分割        |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_step3_continuity_check()`   | Step3: 文脈連続性チェック — 隣接チャンクの結合/分離判定   |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_normalize_whitespace()`     | テキストの改行・空白を正規化（CSV出力用）                  |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_preprocess_text()`          | テキスト前処理（長い1行を句読点で分割）                    |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_postprocess_paragraph()`    | 段落の後処理（句読点で文を分割し改行区切り）               |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_split_sentences_simple()`   | 簡易的な文分割（日本語対応）                               |
-| `csv_text_to_chunks_text_csv.py` | -                   | `main()`                      | CLIエントリポイント（argparse→チャンク実行）              |
-| `async_api_client.py`            | `AsyncAPIClient`    | `__init__()`                  | Gemini APIクライアント初期化（Semaphore並列制御）          |
-| `async_api_client.py`            | `AsyncAPIClient`    | `generate_content()`          | Semaphore制御付きGemini API呼び出し（構造化出力）          |
-| `async_api_client.py`            | `AsyncAPIClient`    | `_execute_with_retry()`       | リトライロジック（指数バックオフ、不完全JSON検出）         |
-| `async_api_client.py`            | `AsyncAPIClient`    | `_is_valid_json()`            | JSONの完全性チェック                                       |
-| `async_api_client.py`            | `AsyncAPIClient`    | `_is_truncated_response()`    | レスポンス切断チェック（finish_reason判定）                |
-| `async_api_client.py`            | `AsyncAPIClient`    | `get_stats()`                 | リクエスト統計情報を取得                                   |
-| `async_api_client.py`            | `AsyncAPIClient`    | `reset_stats()`               | 統計情報をリセット                                         |
-| `checkpoint_manager.py`          | `CheckpointManager` | `__init__()`                  | チェックポイントディレクトリ・ジョブID初期化               |
-| `checkpoint_manager.py`          | `CheckpointManager` | `save()`                      | ステップ結果をJSON保存（原子書込み）                       |
-| `checkpoint_manager.py`          | `CheckpointManager` | `load()`                      | ステップ結果を読み込み                                     |
-| `checkpoint_manager.py`          | `CheckpointManager` | `load_with_metadata()`        | メタデータ付きでステップ結果を読み込み                     |
-| `checkpoint_manager.py`          | `CheckpointManager` | `exists()`                    | チェックポイントの存在確認                                 |
-| `checkpoint_manager.py`          | `CheckpointManager` | `get_latest_completed_step()` | 最後に完了したステップを取得                               |
-| `checkpoint_manager.py`          | `CheckpointManager` | `get_resume_point()`          | クラッシュからの再開ポイントを取得                         |
-| `checkpoint_manager.py`          | `CheckpointManager` | `clear()`                     | ジョブのチェックポイントを削除                             |
-| `checkpoint_manager.py`          | `CheckpointManager` | `get_job_info()`              | ジョブ情報を取得                                           |
-| `checkpoint_manager.py`          | `CheckpointManager` | `list_jobs()`                 | 保存済みジョブの一覧を取得（クラスメソッド）               |
-| `checkpoint_manager.py`          | `CheckpointManager` | `cleanup_old_jobs()`          | 古いジョブを削除（クラスメソッド）                         |
-| `models.py`                      | `SentenceUnit`      | -                             | 1つの文（意味の最小単位）のPydanticモデル                  |
-| `models.py`                      | `ParagraphUnit`     | `full_text`                   | 段落内の全文を改行結合して返すプロパティ                   |
-| `models.py`                      | `StructuralResult`  | -                             | テキスト構造化結果（Step1/Step2のレスポンススキーマ）      |
-| `models.py`                      | `ContinuityResult`  | -                             | 文脈連続性判定結果（Step3のレスポンススキーマ）            |
-| `prompts.py`                     | -                   | `PARAGRAPH_SEPARATION_PROMPT` | Step1: 空行ベース段落分割プロンプト                        |
-| `prompts.py`                     | -                   | `SEMANTIC_CHUNKING_PROMPT`    | Step2: 意味的分割プロンプト（トピック境界検出）            |
-| `prompts.py`                     | -                   | `CONTINUITY_CHECK_PROMPT`     | Step3: 文脈連続性判定プロンプト（True/False）              |
-| `regex_string.py`                | -                   | `chunk_text()`                | テキストをチャンクに分割（日本語/英語自動判定）            |
-| `regex_string.py`                | -                   | `chunk_text_with_info()`      | テキスト分割+詳細情報（分割方法・言語・件数）              |
-| `utils.py`                       | -                   | `show_paragraphs()`           | パラグラフリストの整形表示                                 |
-| `utils.py`                       | -                   | `setup_logging()`             | ロギング設定（ファイル+コンソール）                        |
-| `utils.py`                       | -                   | `format_time()`               | 秒数を読みやすい形式に変換（秒/分/時間）                   |
-| `utils.py`                       | -                   | `format_size()`               | 文字数を読みやすい形式に変換（K文字/M文字）                |
-| `utils.py`                       | -                   | `estimate_api_calls()`        | API呼び出し回数と処理時間を見積もり                        |
-| `utils.py`                       | -                   | `print_stats()`               | 統計情報の整形表示                                         |
+| ファイル名                       | クラス名            | メソッド/関数名                | 機能概要                                                    |
+| -------------------------------- | ------------------- | ------------------------------ | ----------------------------------------------------------- |
+| `csv_text_to_chunks_text_csv.py` | -                   | `chunks_all_async()`           | テキスト/文書リストを3段階で意味的にチャンク化（メイン）    |
+| `csv_text_to_chunks_text_csv.py` | -                   | `load_documents_from_csv()`    | CSVから文書リストを読み込み（1行=1文書、doc_id付与）        |
+| `csv_text_to_chunks_text_csv.py` | -                   | `load_text_from_csv()`         | CSVからテキスト読み込み（後方互換: 全行結合）               |
+| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_csv()`         | チャンクをメタデータ付きCSVで保存（+シンプルCSV同時出力）   |
+| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_simple_csv()`  | チャンクをシンプルCSV（Textカラムのみ）で保存               |
+| `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_text()`        | チャンクをテキスト形式で保存（後方互換）                    |
+| `csv_text_to_chunks_text_csv.py` | -                   | `generate_output_filename()`   | 出力ファイル名を自動生成（既定: 固定名 `<name>_chunks.csv`）|
+| `csv_text_to_chunks_text_csv.py` | -                   | `_step1_hierarchical_split()`  | Step1: 階層構造化（段落分割） — LLMで空行ベースの段落分離  |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_step2_semantic_chunking()`   | Step2: 意味的チャンキング — 段落を意味単位に再分割         |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_step3_continuity_check()`    | Step3: 連続性チェック（rule/llm/off、上限トークン考慮）     |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_rule_based_continuity()`     | ルールベースの連続性判定（LLM呼び出しなし・既定モード）     |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_enforce_max_chunk_tokens()`  | 上限超過チャンクの強制分割（max_chunk_tokens 適用）         |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_split_oversized_text()`      | 巨大テキストを文単位でトークン上限内に分割                  |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_report_coverage()`           | 入力カバレッジ検証（無言のデータ欠落を検知）                |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_write_manifest()`            | チャンクCSVと対の manifest JSON を出力（後続契約の明示）    |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_split_document_into_blocks()`| 文書をブロック（block_size文字）に分割                      |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_detect_text_column()`        | CSVテキストカラムの自動検出                                 |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_count_tokens()`              | tiktoken（cl100k_base）によるトークン数計測                 |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_normalize_whitespace()`      | テキストの改行・空白を正規化（CSV出力用）                   |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_preprocess_text()`           | テキスト前処理（長い1行を句読点で分割）                     |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_postprocess_paragraph()`     | 段落の後処理（句読点で文を分割し改行区切り）                |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_split_sentences_simple()`    | 簡易的な文分割（日本語対応）                                |
+| `csv_text_to_chunks_text_csv.py` | -                   | `main()`                       | CLIエントリポイント（argparse→チャンク実行）               |
+| `async_api_client.py`            | `AsyncAPIClient`    | `__init__()`                   | OpenAI APIクライアント初期化（Semaphore並列制御）           |
+| `async_api_client.py`            | `AsyncAPIClient`    | `generate_content()`           | Semaphore制御付きAPI呼び出し（OpenAI Structured Outputs）   |
+| `async_api_client.py`            | `AsyncAPIClient`    | `_execute_with_retry()`        | リトライロジック（指数バックオフ、出力切断検出）            |
+| `async_api_client.py`            | `AsyncAPIClient`    | `_is_truncated()`              | 出力切断チェック（finish_reason=length 判定）               |
+| `async_api_client.py`            | `AsyncAPIClient`    | `_accumulate_usage()`          | トークン使用量の集計                                        |
+| `async_api_client.py`            | `AsyncAPIClient`    | `get_stats()`                  | リクエスト統計情報を取得                                    |
+| `async_api_client.py`            | `AsyncAPIClient`    | `reset_stats()`                | 統計情報をリセット                                          |
+| `checkpoint_manager.py`          | `CheckpointManager` | `__init__()`                   | チェックポイントディレクトリ・ジョブID初期化                |
+| `checkpoint_manager.py`          | `CheckpointManager` | `save()`                       | ステップ結果をJSON保存（原子書込み）                        |
+| `checkpoint_manager.py`          | `CheckpointManager` | `load()`                       | ステップ結果を読み込み                                      |
+| `checkpoint_manager.py`          | `CheckpointManager` | `load_with_metadata()`         | メタデータ付きでステップ結果を読み込み                      |
+| `checkpoint_manager.py`          | `CheckpointManager` | `exists()`                     | チェックポイントの存在確認                                  |
+| `checkpoint_manager.py`          | `CheckpointManager` | `get_latest_completed_step()`  | 最後に完了したステップを取得                                |
+| `checkpoint_manager.py`          | `CheckpointManager` | `get_resume_point()`           | クラッシュからの再開ポイントを取得                          |
+| `checkpoint_manager.py`          | `CheckpointManager` | `clear()`                      | ジョブのチェックポイントを削除                              |
+| `checkpoint_manager.py`          | `CheckpointManager` | `get_job_info()`               | ジョブ情報を取得                                            |
+| `checkpoint_manager.py`          | `CheckpointManager` | `list_jobs()`                  | 保存済みジョブの一覧を取得（クラスメソッド）                |
+| `checkpoint_manager.py`          | `CheckpointManager` | `cleanup_old_jobs()`           | 古いジョブを削除（クラスメソッド）                          |
+| `models.py`                      | `SentenceUnit`      | -                              | 1つの文（意味の最小単位）のPydanticモデル                   |
+| `models.py`                      | `ParagraphUnit`     | `full_text`                    | 段落内の全文を改行結合して返すプロパティ                    |
+| `models.py`                      | `StructuralResult`  | -                              | テキスト構造化結果（Step1/Step2のレスポンススキーマ）       |
+| `models.py`                      | `ContinuityResult`  | -                              | 文脈連続性判定結果（Step3 LLMモードのレスポンススキーマ）   |
+| `prompts.py`                     | -                   | `PARAGRAPH_SEPARATION_PROMPT`  | Step1: 空行ベース段落分割プロンプト                         |
+| `prompts.py`                     | -                   | `SEMANTIC_CHUNKING_PROMPT`     | Step2: 意味的分割プロンプト（トピック境界検出）             |
+| `prompts.py`                     | -                   | `CONTINUITY_CHECK_PROMPT`      | Step3: 文脈連続性判定プロンプト（True/False）               |
+| `regex_string.py`                | -                   | `chunk_text()`                 | テキストをチャンクに分割（日本語/英語自動判定）             |
+| `regex_string.py`                | -                   | `chunk_text_with_info()`       | テキスト分割+詳細情報（分割方法・言語・件数）               |
+| `utils.py`                       | -                   | `show_paragraphs()`            | パラグラフリストの整形表示                                  |
+| `utils.py`                       | -                   | `setup_logging()`              | ロギング設定（ファイル+コンソール）                         |
+| `utils.py`                       | -                   | `format_time()`                | 秒数を読みやすい形式に変換（秒/分/時間）                    |
+| `utils.py`                       | -                   | `format_size()`                | 文字数を読みやすい形式に変換（K文字/M文字）                 |
+| `utils.py`                       | -                   | `estimate_api_calls()`         | API呼び出し回数と処理時間を見積もり                         |
+| `utils.py`                       | -                   | `print_stats()`                | 統計情報の整形表示                                          |
 
 ### Q/A生成・Qdrant登録（qa_qdrant/）
-
 
 | ファイル名                   | クラス名 | メソッド/関数名               | 機能概要                                                        |
 | ---------------------------- | -------- | ----------------------------- | --------------------------------------------------------------- |
 | `make_qa_register_qdrant.py` | -        | `main()`                      | 統合パイプライン実行（Phase1: Q/A生成 → Phase2: Qdrant登録）   |
 | `make_qa_register_qdrant.py` | -        | `run_registration()`          | Qdrant登録ロジック（Embedding→コレクション作成→アップサート） |
-| `make_qa_register_qdrant.py` | -        | `combine_rows_to_chunks()`    | CSV複数行を結合してチャンクCSVを作成                            |
 | `make_qa_register_qdrant.py` | -        | `normalize_source_filename()` | ファイル名から日時サフィックスを除去して正規化                  |
+| `make_qa.py`                 | -        | `main()`                      | Q/A生成のみのCLI（QAPipeline実行、Qdrant登録なし）              |
+| `register_to_qdrant.py`      | -        | `register_to_qdrant()`        | CSV→Qdrant登録の本体（Q/Aペア/汎用CSV両対応）                  |
+| `register_to_qdrant.py`      | -        | `detect_text_column()`        | ベクトル化対象カラムの自動検出                                  |
+| `register_to_qdrant.py`      | -        | `normalize_source_filename()` | ファイル名から日時サフィックスを除去                            |
+| `register_to_qdrant.py`      | -        | `main()`                      | 登録専用CLIエントリポイント                                     |
+
+> **Note**: 旧 `combine_rows_to_chunks()`（CSV行結合）は削除済み。チャンキングは
+> `chunking/csv_text_to_chunks_text_csv.py` に一本化され、`make_qa_register_qdrant.py` は
+> チャンク済みCSV（または question/answer 付きCSV）のみを受け付ける（`.txt` 直接入力は不可）。
 
 ### Q/A生成パイプライン（qa_generation/）
 
-
-| ファイル名    | クラス名     | メソッド/関数名           | 機能概要                                             |
-| ------------- | ------------ | ------------------------- | ---------------------------------------------------- |
-| `pipeline.py` | `QAPipeline` | `__init__()`              | コンストラクタ（設定ロード、SmartQAGenerator初期化） |
-| `pipeline.py` | `QAPipeline` | `load_data()`             | データ読み込み（CSV/データセット対応）               |
-| `pipeline.py` | `QAPipeline` | `_load_chunks_from_csv()` | チャンク済みCSVをチャンクリストに変換                |
-| `pipeline.py` | `QAPipeline` | `generate_qa()`           | Q/Aペアを生成（同期/Celery並列切替）                 |
-| `pipeline.py` | `QAPipeline` | `_generate_with_celery()` | Celery並列処理によるQ/A生成                          |
-| `pipeline.py` | `QAPipeline` | `_generate_sync()`        | 同期処理によるQ/A生成（SmartQAGenerator使用）        |
-| `pipeline.py` | `QAPipeline` | `evaluate_coverage()`     | カバレージ評価（チャンク網羅率分析）                 |
-| `pipeline.py` | `QAPipeline` | `save()`                  | 結果をCSV保存                                        |
-| `pipeline.py` | `QAPipeline` | `run()`                   | パイプライン一括実行（読込→変換→生成→分析→保存） |
-| `pipeline.py` | `QAPipeline` | `_validate_inputs()`      | 入力パラメータの排他制御検証                         |
-| `pipeline.py` | `QAPipeline` | `_load_config()`          | データセット/ファイル設定をロード                    |
+| ファイル名              | クラス名           | メソッド/関数名           | 機能概要                                                   |
+| ----------------------- | ------------------ | ------------------------- | ---------------------------------------------------------- |
+| `pipeline.py`           | `QAPipeline`       | `__init__()`              | コンストラクタ（設定ロード、SmartQAGenerator初期化）       |
+| `pipeline.py`           | `QAPipeline`       | `load_data()`             | データ読み込み（CSV/データセット対応）                     |
+| `pipeline.py`           | `QAPipeline`       | `_load_chunks_from_csv()` | チャンク済みCSVをチャンクリストに変換                      |
+| `pipeline.py`           | `QAPipeline`       | `generate_qa()`           | Q/Aペアを生成（同期/Celery並列切替）                       |
+| `pipeline.py`           | `QAPipeline`       | `_generate_with_celery()` | Celery並列処理によるQ/A生成（進捗の逐次永続化）            |
+| `pipeline.py`           | `QAPipeline`       | `_generate_sync()`        | 同期処理によるQ/A生成（SmartQAGenerator使用）              |
+| `pipeline.py`           | `QAPipeline`       | `evaluate_coverage()`     | カバレージ評価（チャンク網羅率分析）                       |
+| `pipeline.py`           | `QAPipeline`       | `save()`                  | 結果をCSV保存                                              |
+| `pipeline.py`           | `QAPipeline`       | `run()`                   | パイプライン一括実行（読込→変換→生成→分析→保存）       |
+| `pipeline.py`           | `QAPipeline`       | `_validate_inputs()`      | 入力パラメータの排他制御検証                               |
+| `pipeline.py`           | `QAPipeline`       | `_load_config()`          | データセット/ファイル設定をロード                          |
+| `pipeline.py`           | `QAPipeline`       | `_load_progress()` ほか   | 進捗JSON（progress）の読込・追記・クリア（中断復旧用）     |
+| `smart_qa_generator.py` | `SmartQAPair`      | -                         | Q/Aペア1件のPydanticスキーマ（question/answer/topic）      |
+| `smart_qa_generator.py` | `SmartQAResult`    | -                         | チャンク分析+Q/A生成の統合スキーマ（qa_count 0〜5等）      |
+| `smart_qa_generator.py` | `SmartQAGenerator` | `analyze_and_generate()`  | 構造化出力1回でチャンク分析とQ/A生成を実行                 |
+| `smart_qa_generator.py` | `SmartQAGenerator` | `process_chunk()`         | チャンク1件を処理して辞書形式で返す                        |
+| `smart_qa_generator.py` | -                  | `analyze_qa_statistics()` | 生成結果の統計集計                                         |
+| `semantic.py`           | `SemanticCoverage` | 各種メソッド              | 意味的チャンク分割・Embedding・コサイン類似度計算          |
+| `evaluation.py`         | -                  | `analyze_coverage()`      | カバレージ分析（マルチ閾値・チャンク特性分析）             |
+| `models.py`             | `QAPair` ほか      | -                         | Q/A生成用Pydanticスキーマ群                                |
+| `data_io.py`            | -                  | `load_uploaded_file()` 等 | データ入出力（アップロード/前処理済みデータ/結果保存）     |
 
 ### Qdrant操作サービス（services/）
-
 
 | ファイル名          | クラス名              | メソッド/関数名                              | 機能概要                                              |
 | ------------------- | --------------------- | -------------------------------------------- | ----------------------------------------------------- |
@@ -228,25 +267,25 @@ flowchart TB
 | `qdrant_service.py` | `QdrantDataFetcher`   | `fetch_collection_points()`                  | コレクションの詳細データをDataFrameで取得             |
 | `qdrant_service.py` | `QdrantDataFetcher`   | `fetch_collection_info()`                    | コレクションの詳細情報（ベクトル設定含む）            |
 | `qdrant_service.py` | `QdrantDataFetcher`   | `fetch_collection_source_info()`             | コレクションのデータソース情報を集計                  |
-| `qdrant_service.py` | -                     | `embed_texts_for_qdrant()`                   | テキストをGemini Embeddingでバッチベクトル化          |
+| `qdrant_service.py` | -                     | `embed_texts_for_qdrant()`                   | テキストをOpenAI Embeddingでバッチベクトル化          |
 | `qdrant_service.py` | -                     | `create_or_recreate_collection_for_qdrant()` | コレクション作成/再作成（Sparse Vector対応）          |
 | `qdrant_service.py` | -                     | `build_points_for_qdrant()`                  | Qdrantポイント構築（payload: question/answer/source） |
 | `qdrant_service.py` | -                     | `upsert_points_to_qdrant()`                  | ポイントをバッチアップサート                          |
-| `qdrant_service.py` | -                     | `embed_query_for_search()`                   | 検索クエリをベクトル化（プロバイダー自動選択）        |
+| `qdrant_service.py` | -                     | `embed_query_for_search()`                   | 検索クエリをベクトル化（次元数/モデル名で自動選択）   |
 | `qdrant_service.py` | -                     | `get_collection_stats()`                     | コレクション統計情報を取得                            |
 | `qdrant_service.py` | -                     | `get_all_collections()`                      | 全コレクション一覧を取得                              |
 | `qdrant_service.py` | -                     | `get_all_collections_simple()`               | 全コレクション一覧を取得（シンプル版）                |
 | `qdrant_service.py` | -                     | `delete_all_collections()`                   | 全コレクションを削除（除外リスト対応）                |
 | `qdrant_service.py` | -                     | `load_csv_for_qdrant()`                      | CSVをロード（列名マッピング+バリデーション）          |
-| `qdrant_service.py` | -                     | `build_inputs_for_embedding()`               | 埋め込み用入力テキストを構築（question+answer結合）   |
+| `qdrant_service.py` | -                     | `build_inputs_for_embedding()`               | 埋め込み用入力テキストを構築（answer結合は選択制）    |
 | `qdrant_service.py` | -                     | `scroll_all_points_with_vectors()`           | コレクションから全ポイント取得（ベクトル含む）        |
 | `qdrant_service.py` | -                     | `merge_collections()`                        | 複数コレクションを統合して新コレクションに登録        |
 | `qdrant_service.py` | -                     | `map_collection_to_csv()`                    | コレクション名から対応CSVファイル名を取得             |
 | `qdrant_service.py` | -                     | `get_dynamic_collection_mapping()`           | コレクションとCSVの動的マッピング生成                 |
 | `qdrant_service.py` | -                     | `get_collection_embedding_params()`          | コレクションの埋め込みモデル設定を推論                |
+| `qa_service.py`     | -                     | `run_advanced_qa_generation()` ほか          | UI向けQ/A生成サービス（`create_llm_client("openai")`）|
 
 ### Qdrantクライアントラッパー
-
 
 | ファイル名                 | クラス名              | メソッド/関数名                        | 機能概要                                              |
 | -------------------------- | --------------------- | -------------------------------------- | ----------------------------------------------------- |
@@ -259,7 +298,7 @@ flowchart TB
 | `qdrant_client_wrapper.py` | `QdrantDataFetcher`   | `fetch_collection_source_info()`       | データソース情報を集計                                |
 | `qdrant_client_wrapper.py` | -                     | `create_qdrant_client()`               | QdrantClientを作成（ファクトリ関数）                  |
 | `qdrant_client_wrapper.py` | -                     | `get_qdrant_client()`                  | シングルトンQdrantClientを取得                        |
-| `qdrant_client_wrapper.py` | -                     | `get_embedding_client()`               | プロバイダー別EmbeddingClientを取得                   |
+| `qdrant_client_wrapper.py` | -                     | `get_embedding_client()`               | プロバイダー別EmbeddingClientを取得（既定: openai）   |
 | `qdrant_client_wrapper.py` | -                     | `get_cached_sparse_embedding_client()` | Sparse Embeddingクライアントを取得（キャッシュ付き）  |
 | `qdrant_client_wrapper.py` | -                     | `create_or_recreate_collection()`      | コレクション作成/再作成（Hybrid Search対応）          |
 | `qdrant_client_wrapper.py` | -                     | `embed_texts_unified()`                | テキストをベクトル化（プロバイダー統一版）            |
@@ -278,27 +317,33 @@ flowchart TB
 | `qdrant_client_wrapper.py` | -                     | `build_inputs_for_embedding()`         | 埋め込み用入力テキストを構築                          |
 | `qdrant_client_wrapper.py` | -                     | `batched()`                            | イテラブルをバッチに分割                              |
 
-### 設定管理
+### ヘルパー（helper/）
 
+| ファイル名            | クラス名/関数名                | 機能概要                                                             |
+| --------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| `helper_embedding.py` | `create_embedding_client()`    | Embeddingクライアントのファクトリ（既定 provider="openai"）          |
+| `helper_embedding.py` | `OpenAIEmbedding`              | OpenAI Embeddings API実装（`text-embedding-3-large`, 3072次元既定）  |
+| `helper_embedding.py` | `get_embedding_dimensions()`   | プロバイダー別Embedding次元数を取得（openai: 3072）                  |
+| `helper_llm.py`       | `create_llm_client()`          | LLMクライアントのファクトリ（既定 provider="openai"）                |
+| `helper_llm.py`       | `OpenAIClient`                 | OpenAI GPTクライアント（generate_content/generate_structured 等）    |
+| `helper_rag_qa.py`    | `OpenAIClient` ほか            | RAG Q/A用LLMクライアント（既定モデル `gpt-5-mini`、tools対応）       |
 
-| ファイル名  | クラス名             | メソッド/関数名             | 機能概要                                |
-| ----------- | -------------------- | --------------------------- | --------------------------------------- |
-| `config.py` | `ModelConfig`        | `supports_temperature()`    | モデルのtemperatureサポート判定         |
-| `config.py` | `ModelConfig`        | `get_model_limits()`        | モデルのトークン制限を取得              |
-| `config.py` | `ModelConfig`        | `get_model_pricing()`       | モデルの料金情報を取得                  |
-| `config.py` | `DatasetInfo`        | -                           | データセット情報（dataclass）           |
-| `config.py` | `DatasetConfig`      | `get_dataset()`             | データセット設定を取得                  |
-| `config.py` | `DatasetConfig`      | `get_dataset_dict()`        | データセット設定を辞書形式で取得        |
-| `config.py` | `DatasetConfig`      | `get_all_dataset_names()`   | 全データセット名を取得                  |
-| `config.py` | `QAGenerationConfig` | -                           | Q/A生成設定（質問タイプ階層、閾値等）   |
-| `config.py` | `QdrantConfig`       | -                           | Qdrant接続設定（HOST/PORT/VECTOR_SIZE） |
-| `config.py` | `GeminiConfig`       | `get_model_limits()`        | Geminiモデルの制限を取得                |
-| `config.py` | `GeminiConfig`       | `get_model_pricing()`       | Geminiモデルの料金を取得                |
-| `config.py` | `GeminiConfig`       | `supports_thinking_level()` | 思考レベルサポート判定                  |
-| `config.py` | `PathConfig`         | `ensure_dirs()`             | 必要なディレクトリを一括作成            |
-| `config.py` | `CeleryConfig`       | -                           | Celery並列処理設定                      |
-| `config.py` | `AgentConfig`        | -                           | RAGエージェント設定（検索閾値等）       |
-| `config.py` | `LLMProviderConfig`  | `get_embedding_dims()`      | プロバイダー別Embedding次元数を取得     |
+### 設定管理（config.py）
+
+| ファイル名  | クラス名             | メソッド/関数名             | 機能概要                                                       |
+| ----------- | -------------------- | --------------------------- | -------------------------------------------------------------- |
+| `config.py` | `ModelConfig`        | `supports_temperature()` 等 | 旧LLM設定クラス（後方互換）。現行既定は GeminiConfig 側を参照  |
+| `config.py` | `DatasetInfo`        | -                           | データセット情報（dataclass）                                  |
+| `config.py` | `DatasetConfig`      | `get_dataset()`             | データセット設定を取得                                         |
+| `config.py` | `DatasetConfig`      | `get_dataset_dict()`        | データセット設定を辞書形式で取得                               |
+| `config.py` | `DatasetConfig`      | `get_all_dataset_names()`   | 全データセット名を取得                                         |
+| `config.py` | `QAGenerationConfig` | -                           | Q/A生成設定（質問タイプ階層、閾値等）                          |
+| `config.py` | `QdrantConfig`       | -                           | Qdrant接続設定（VECTOR_SIZE=3072, text-embedding-3-large）     |
+| `config.py` | `GeminiConfig`       | `get_model_limits()` 等     | ※クラス名は後方互換。中身はOpenAI設定（gpt-5-mini 等）        |
+| `config.py` | `PathConfig`         | `ensure_dirs()`             | 必要なディレクトリを一括作成                                   |
+| `config.py` | `CeleryConfig`       | -                           | Celery並列処理設定                                             |
+| `config.py` | `AgentConfig`        | -                           | RAGエージェント設定（検索閾値・既定コレクション等）            |
+| `config.py` | `LLMProviderConfig`  | `get_embedding_dims()`      | プロバイダー別Embedding次元数を取得（既定 "openai" → 3072）   |
 
 ---
 
@@ -320,6 +365,8 @@ flowchart TB
 
     subgraph QA_QDRANT["qa_qdrant パッケージ"]
         MAKE_QA["make_qa_register_qdrant.py"]
+        MAKE_QA_ONLY["make_qa.py"]
+        REG_ONLY["register_to_qdrant.py"]
     end
 
     subgraph QA_GEN["qa_generation パッケージ"]
@@ -332,10 +379,11 @@ flowchart TB
         QDRANT_SVC["qdrant_service.py"]
         QDRANT_WRAP["qdrant_client_wrapper.py"]
         HELPER_EMB["helper_embedding.py"]
+        HELPER_LLM["helper_llm.py"]
     end
 
     subgraph CONFIG_PKG["設定"]
-        CONFIG["config.py<br/>ModelConfig / DatasetConfig<br/>QdrantConfig / GeminiConfig"]
+        CONFIG["config.py<br/>DatasetConfig / QdrantConfig<br/>CeleryConfig / LLMProviderConfig"]
     end
 
     CSV_CHUNK --> ASYNC_CLI
@@ -348,22 +396,32 @@ flowchart TB
     MAKE_QA --> QA_PIPE
     MAKE_QA --> QDRANT_SVC
     MAKE_QA --> QDRANT_WRAP
+    MAKE_QA_ONLY --> QA_PIPE
+    REG_ONLY --> QDRANT_SVC
 
     QA_PIPE --> SMART_GEN
     QA_PIPE --> EVAL
     QA_PIPE --> CONFIG_PKG
+    SMART_GEN --> HELPER_LLM
 
     QDRANT_SVC --> HELPER_EMB
     QDRANT_SVC --> QDRANT_WRAP
     QDRANT_WRAP --> HELPER_EMB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class CSV_CHUNK,ASYNC_CLI,CHECKPOINT,MODELS,PROMPTS,UTILS,REGEX,MAKE_QA,MAKE_QA_ONLY,REG_ONLY,QA_PIPE,SMART_GEN,EVAL,QDRANT_SVC,QDRANT_WRAP,HELPER_EMB,HELPER_LLM,CONFIG default
+style CHUNKING_PKG fill:#1a1a1a,stroke:#fff,color:#fff
+style QA_QDRANT fill:#1a1a1a,stroke:#fff,color:#fff
+style QA_GEN fill:#1a1a1a,stroke:#fff,color:#fff
+style SERVICES fill:#1a1a1a,stroke:#fff,color:#fff
+style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
 
-
 | ライブラリ      | 用途                                 |
 | --------------- | ------------------------------------ |
-| `google-genai`  | Gemini LLM / Embedding API           |
+| `openai`        | OpenAI GPT / Embedding API           |
 | `qdrant-client` | Qdrantベクトルデータベース操作       |
 | `pydantic`      | レスポンススキーマ定義（構造化出力） |
 | `pandas`        | CSV入出力・データ処理                |
@@ -373,10 +431,9 @@ flowchart TB
 
 ### 2.3 内部依存モジュール
 
-
 | モジュール                         | 用途                                |
 | ---------------------------------- | ----------------------------------- |
-| `chunking.async_api_client`        | Gemini API非同期呼び出し            |
+| `chunking.async_api_client`        | OpenAI API非同期呼び出し            |
 | `chunking.checkpoint_manager`      | チェックポイント永続化              |
 | `chunking.models`                  | Pydanticスキーマ（段落/連続性判定） |
 | `chunking.prompts`                 | 3段階チャンク用プロンプト           |
@@ -385,6 +442,7 @@ flowchart TB
 | `services.qdrant_service`          | Qdrant操作サービス                  |
 | `qdrant_client_wrapper`            | Qdrantクライアントラッパー          |
 | `helper.helper_embedding`          | Embedding抽象化レイヤー             |
+| `helper.helper_llm`                | LLMクライアント抽象化レイヤー       |
 | `config`                           | 全体設定管理                        |
 
 ---
@@ -395,46 +453,54 @@ flowchart TB
 
 #### 関数一覧
 
-
 | 関数名                                                     | 概要                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
-| `chunks_all_async(text, model, ...)`                       | テキストを3段階で意味的にチャンク化（メインエントリ） |
-| `load_text_from_csv(csv_path, ...)`                        | CSVファイルからテキストを読み込み                     |
+| `chunks_all_async(text, model, ..., documents, continuity_mode, max_chunk_tokens)` | テキスト/文書リストを3段階でチャンク化（メイン） |
+| `load_documents_from_csv(csv_path, text_column, max_rows)` | CSVから文書リストを読み込み（1行=1文書、doc_id付与）  |
+| `load_text_from_csv(csv_path, ...)`                        | CSVからテキスト読み込み（後方互換: 全行結合）         |
 | `save_chunks_as_csv(chunks, output_file, ...)`             | チャンクをメタデータ付きCSVで保存                     |
 | `save_chunks_as_simple_csv(chunks, output_file, ...)`      | チャンクをシンプルCSV（Textのみ）で保存               |
 | `save_chunks_as_text(chunks, output_file)`                 | チャンクをテキスト形式で保存                          |
-| `generate_output_filename(input_file, output_dir, ...)`    | 出力ファイル名の自動生成                              |
-| `_step1_hierarchical_split(text, client, model, ...)`      | Step1: 階層構造化（段落分割）                         |
+| `generate_output_filename(input_file, output_dir, dataset_type, use_timestamp)` | 出力ファイル名の自動生成（既定: 固定名） |
+| `_step1_hierarchical_split(documents, client, model, ...)` | Step1: 階層構造化（段落分割）                         |
 | `_step2_semantic_chunking(paragraphs, client, model, ...)` | Step2: 意味的チャンキング                             |
-| `_step3_continuity_check(chunks, client, model, ...)`      | Step3: 文脈連続性チェック                             |
+| `_step3_continuity_check(chunks, client, model, ..., continuity_mode, max_chunk_tokens)` | Step3: 文脈連続性チェック   |
+| `_enforce_max_chunk_tokens(chunks, max_tokens)`            | 上限超過チャンクの強制分割                            |
+| `_report_coverage(...)`                                    | 入力カバレッジ検証（データ欠落検知）                  |
+| `_write_manifest(...)`                                     | チャンクCSVと対のmanifest JSON出力                    |
 | `_normalize_whitespace(text)`                              | テキストの改行・空白を正規化                          |
 | `_preprocess_text(text)`                                   | テキスト前処理（長い1行を句読点で分割）               |
 | `_postprocess_paragraph(paragraph)`                        | 段落の後処理（句読点で文を分割し改行区切り）          |
+
+#### 定数
+
+| 定数                          | 値   | 説明                                                         |
+| ----------------------------- | ---- | ------------------------------------------------------------ |
+| `MAX_CHUNK_TOKENS`            | 512  | チャンク最大トークン数（Step3結合上限＋最終強制分割上限）    |
+| `EMBEDDING_INPUT_TOKEN_LIMIT` | 2048 | Embedding入力上限の保守的ガード値（超過設定時に警告）        |
 
 ### 3.2 make_qa_register_qdrant.py
 
 #### 関数一覧
 
+| 関数名                                                                    | 概要                                                          |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `main()`                                                                  | 統合パイプライン実行（Phase1: Q/A生成 → Phase2: Qdrant登録） |
+| `run_registration(csv_path, collection_name, recreate, batch_size, provider, ui_output_dir)` | Qdrant登録ロジック（Embedding→アップサート） |
+| `normalize_source_filename(filename)`                                     | ファイル名から日時サフィックスを除去                          |
 
-| 関数名                                                     | 概要                                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------------- |
-| `main()`                                                   | 統合パイプライン実行（Phase1: Q/A生成 → Phase2: Qdrant登録） |
-| `run_registration(csv_path, collection_name, ...)`         | Qdrant登録ロジック（Embedding→アップサート）                 |
-| `combine_rows_to_chunks(df, text_column, block_size, ...)` | CSV複数行を結合してチャンクCSVを作成                          |
-| `normalize_source_filename(filename)`                      | ファイル名から日時サフィックスを除去                          |
+主なCLIオプション: `--input-file`（チャンク済みCSV）/ `--dataset` / `--collection`（必須）/ `--model`（既定 `gpt-5-mini`）/ `--use-celery` / `-c, --concurrency`（既定 8）/ `--recreate` / `--batch-size`（既定 100）/ `--provider`（既定 `openai`）/ `--output` / `--ui-output`
 
 ### 3.3 AsyncAPIClient クラス
 
-
-| メソッド                                                  | 概要                                          |
-| --------------------------------------------------------- | --------------------------------------------- |
-| `__init__(api_key, max_workers, max_retries, ...)`        | コンストラクタ（Gemini接続、Semaphore初期化） |
-| `generate_content(model, contents, response_schema, ...)` | Semaphore制御付きAPI呼び出し                  |
-| `get_stats()`                                             | リクエスト統計情報を取得                      |
-| `reset_stats()`                                           | 統計情報をリセット                            |
+| メソッド                                                          | 概要                                          |
+| ------------------------------------------------------------------ | --------------------------------------------- |
+| `__init__(api_key, max_workers=8, max_retries=3, max_output_tokens=8192)` | コンストラクタ（OpenAI接続、Semaphore初期化） |
+| `generate_content(model, contents, response_schema, task_id, system)` | Semaphore制御付きAPI呼び出し（構造化出力） |
+| `get_stats()`                                                      | リクエスト統計情報を取得                      |
+| `reset_stats()`                                                    | 統計情報をリセット                            |
 
 ### 3.4 CheckpointManager クラス
-
 
 | メソッド                           | 概要                                                 |
 | ---------------------------------- | ---------------------------------------------------- |
@@ -447,15 +513,14 @@ flowchart TB
 
 ### 3.5 QAPipeline クラス（qa_generation/pipeline.py）
 
-
 | メソッド                                         | 概要                                                 |
 | ------------------------------------------------ | ---------------------------------------------------- |
-| `__init__(dataset_name, input_file, model, ...)` | コンストラクタ（設定ロード、SmartQAGenerator初期化） |
+| `__init__(dataset_name, input_file, model="gpt-5-mini", output_dir, max_docs, client)` | コンストラクタ（設定ロード、SmartQAGenerator初期化） |
 | `load_data()`                                    | データ読み込み（CSV/データセット対応）               |
 | `generate_qa(chunks, use_celery, ...)`           | Q/Aペアを生成（同期/Celery並列）                     |
 | `evaluate_coverage(chunks, qa_pairs, ...)`       | カバレージ評価                                       |
 | `save(qa_pairs, coverage_results)`               | 結果をCSV保存                                        |
-| `run(use_celery, concurrency, ...)`              | パイプライン一括実行                                 |
+| `run(use_celery, celery_workers, concurrency, batch_chunks, analyze_coverage, coverage_threshold)` | パイプライン一括実行 |
 
 ---
 
@@ -463,39 +528,43 @@ flowchart TB
 
 ### 4.1 chunks_all_async()
 
-**概要**: テキストを3段階（段落分割→意味的分割→連続性チェック）で意味的にチャンク化する非同期メイン関数。
+**概要**: テキストまたは文書リストを3段階（段落分割→意味的分割→連続性チェック）で意味的にチャンク化する非同期メイン関数。文書境界を保証し、manifest を出力する。
 
 ```python
 async def chunks_all_async(
-    text: str,
-    model: str = "gemini-3-flash-preview",
+    text: Optional[str] = None,
+    model: str = "gpt-5-mini",
     max_workers: int = 8,
     block_size: int = 1000,
     checkpoint_manager: Optional[CheckpointManager] = None,
     output_file: Optional[str] = None,
     dataset_type: str = "custom",
-    source_file: Optional[str] = None
+    source_file: Optional[str] = None,
+    documents: Optional[List[Dict]] = None,
+    continuity_mode: str = "rule",
+    max_chunk_tokens: int = MAX_CHUNK_TOKENS,
 ) -> List[str]
 ```
 
+| パラメータ           | 型                          | デフォルト   | 説明                                                     |
+| -------------------- | --------------------------- | ------------ | -------------------------------------------------------- |
+| `text`               | Optional[str]               | None         | 分割対象テキスト（単一文書。`documents` と排他）         |
+| `model`              | str                         | "gpt-5-mini" | 使用するOpenAI GPTモデル                                 |
+| `max_workers`        | int                         | 8            | 非同期並列ワーカー数                                     |
+| `block_size`         | int                         | 1000         | Step1ブロックサイズ（文字数）                            |
+| `checkpoint_manager` | Optional[CheckpointManager] | None         | チェックポイント管理                                     |
+| `output_file`        | Optional[str]               | None         | 出力ファイルパス（CSV/テキスト）                         |
+| `dataset_type`       | str                         | "custom"     | データセット種別                                         |
+| `source_file`        | Optional[str]               | None         | 元ファイル名                                             |
+| `documents`          | Optional[List[Dict]]        | None         | 文書リスト `[{'doc_id':…, 'text':…}, ...]`（境界保証） |
+| `continuity_mode`    | str                         | "rule"       | Step3モード（rule / llm / off）                          |
+| `max_chunk_tokens`   | int                         | 512          | チャンク最大トークン数（結合上限＋強制分割上限）         |
 
-| パラメータ           | 型                          | デフォルト               | 説明                             |
-| -------------------- | --------------------------- | ------------------------ | -------------------------------- |
-| `text`               | str                         | -                        | 分割対象テキスト                 |
-| `model`              | str                         | "gemini-3-flash-preview" | 使用するGemini LLMモデル         |
-| `max_workers`        | int                         | 8                        | 非同期並列ワーカー数             |
-| `block_size`         | int                         | 1000                     | Step1ブロックサイズ（文字数）    |
-| `checkpoint_manager` | Optional[CheckpointManager] | None                     | チェックポイント管理             |
-| `output_file`        | Optional[str]               | None                     | 出力ファイルパス（CSV/テキスト） |
-| `dataset_type`       | str                         | "custom"                 | データセット種別                 |
-| `source_file`        | Optional[str]               | None                     | 元ファイル名                     |
-
-
-| 項目        | 内容                                                                                                                                                                                                                                                                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Input**   | `text: str`（分割対象テキスト）, `model: str`, `max_workers: int`                                                                                                                                                                                                                                                              |
-| **Process** | 1. GOOGLE_API_KEY検証、AsyncAPIClient初期化<br>2. Step1: `_step1_hierarchical_split()` — テキストをブロック分割→LLMで段落分離<br>3. Step2: `_step2_semantic_chunking()` — 段落を意味単位にチャンク化<br>4. Step3: `_step3_continuity_check()` — 隣接チャンクの連続性判定→マージ<br>5. output_file指定時はCSV/テキスト保存 |
-| **Output**  | `List[str]`: 最終チャンクリスト                                                                                                                                                                                                                                                                                                |
+| 項目        | 内容                                                                                                                                                                                                                                                                                                                                                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `text: str` または `documents: List[Dict]`（doc_id 付き文書リスト）, `model: str`, `max_workers: int`                                                                                                                                                                                                                                                           |
+| **Process** | 1. `OPENAI_API_KEY` 検証、AsyncAPIClient初期化<br>2. Step1: `_step1_hierarchical_split()` — 文書ごとにブロック分割→LLMで段落分離<br>3. Step2: `_step2_semantic_chunking()` — 段落を意味単位にチャンク化<br>4. Step3: `_step3_continuity_check()` — 隣接チャンクの連続性判定（既定ルールベース）→マージ<br>5. `_enforce_max_chunk_tokens()` で上限強制分割<br>6. `_report_coverage()` で入力カバレッジ検証<br>7. output_file指定時はCSV保存＋manifest出力 |
+| **Output**  | `List[str]`: 最終チャンクリスト（doc_id 等のメタデータは出力CSVに含まれる）                                                                                                                                                                                                                                                                                     |
 
 **戻り値例**:
 
@@ -510,48 +579,44 @@ async def chunks_all_async(
 ```python
 # 使用例
 import asyncio
-from chunking.csv_text_to_chunks_text_csv import chunks_all_async
+from chunking.csv_text_to_chunks_text_csv import chunks_all_async, load_documents_from_csv
 
-text = open("data/document.txt", "r").read()
+documents = load_documents_from_csv("OUTPUT/cc_news_1per.csv")
 chunks = asyncio.run(chunks_all_async(
-    text=text,
-    model="gemini-3-flash-preview",
+    documents=documents,
+    model="gpt-5-mini",
     max_workers=8,
     block_size=1000,
-    output_file="chunks_output/result.csv"
+    output_file="output_chunked/cc_news_1per_chunks.csv"
 ))
 print(f"生成チャンク数: {len(chunks)}")
 ```
 
 ---
 
-### 4.2 load_text_from_csv()
+### 4.2 load_documents_from_csv() / load_text_from_csv()
 
-**概要**: CSVファイルからテキストを読み込む。テキストカラムを自動検出し、複数行を結合して返す。
+**概要**: CSVファイルから文書リストを読み込む。1行=1文書として文書（記事）境界を保持し、`doc_id` により元文書へのトレーサビリティを確保する。旧 `load_text_from_csv()` は後方互換として残るが、全行を1テキストに結合するため文書境界が失われる。
 
 ```python
-def load_text_from_csv(
+def load_documents_from_csv(
     csv_path: str,
     text_column: Optional[str] = None,
     max_rows: Optional[int] = None,
-    combine_rows: bool = False
-) -> str
+) -> List[Dict]
 ```
 
+| パラメータ    | 型            | デフォルト | 説明                                 |
+| ------------- | ------------- | ---------- | ------------------------------------ |
+| `csv_path`    | str           | -          | CSVファイルパス                      |
+| `text_column` | Optional[str] | None       | テキストカラム名（None時は自動検出） |
+| `max_rows`    | Optional[int] | None       | 最大処理行数                         |
 
-| パラメータ     | 型            | デフォルト | 説明                                 |
-| -------------- | ------------- | ---------- | ------------------------------------ |
-| `csv_path`     | str           | -          | CSVファイルパス                      |
-| `text_column`  | Optional[str] | None       | テキストカラム名（None時は自動検出） |
-| `max_rows`     | Optional[int] | None       | 最大処理行数                         |
-| `combine_rows` | bool          | False      | 全行を1テキストに結合するか          |
-
-
-| 項目        | 内容                                                                                                                                    |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**   | `csv_path: str`（CSVファイルパス）                                                                                                      |
-| **Process** | 1. CSV読み込み（pandas）<br>2. テキストカラム自動検出（text, Content, Combined_Text等）<br>3. 空行フィルタリング<br>4. 改行区切りで結合 |
-| **Output**  | `str`: 結合されたテキスト                                                                                                               |
+| 項目        | 内容                                                                                                                            |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `csv_path: str`（CSVファイルパス）                                                                                              |
+| **Process** | 1. CSV読み込み（pandas）<br>2. `_detect_text_column()` でテキストカラム自動検出<br>3. 空行フィルタリング<br>4. 行番号を doc_id として付与 |
+| **Output**  | `List[Dict]`: `[{'doc_id': 行番号, 'text': テキスト}, ...]`                                                                     |
 
 ---
 
@@ -570,7 +635,6 @@ def save_chunks_as_csv(
 ) -> str
 ```
 
-
 | パラメータ             | 型            | デフォルト | 説明                     |
 | ---------------------- | ------------- | ---------- | ------------------------ |
 | `chunks`               | List[str]     | -          | チャンクリスト           |
@@ -580,22 +644,21 @@ def save_chunks_as_csv(
 | `normalize_whitespace` | bool          | True       | 改行・空白を正規化するか |
 | `save_simple_csv`      | bool          | True       | シンプルCSVも保存するか  |
 
-
 | 項目        | 内容                                                                                                                                                           |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Input**   | `chunks: List[str]`, `output_file: str`                                                                                                                        |
-| **Process** | 1. 各チャンクの改行正規化（オプション）<br>2. メタデータ付きCSV生成（chunk_id, text, tokens, chunk_idx等）<br>3. `save_simple_csv=True`時、`_simple.csv`も出力 |
+| **Process** | 1. 各チャンクの改行正規化（オプション）<br>2. メタデータ付きCSV生成（chunk_id, text, tokens, doc_id等）<br>3. `save_simple_csv=True`時、`_simple.csv`も出力 |
 | **Output**  | `str`: 保存したCSVファイルパス                                                                                                                                 |
 
 ---
 
 ### 4.4 AsyncAPIClient クラス
 
-Gemini APIへの非同期呼び出しを管理。Semaphoreで並列数を制御し、指数バックオフでリトライする。
+OpenAI APIへの非同期呼び出しを管理。Semaphoreで並列数を制御し、指数バックオフでリトライする。構造化出力は OpenAI Structured Outputs（`beta.chat.completions.parse` に `response_format=Pydanticクラス` を指定）で実現。
 
 #### コンストラクタ: `__init__`
 
-**概要**: Gemini APIクライアントの初期化。並列数制御用Semaphoreとリトライ設定を構成する。
+**概要**: OpenAI APIクライアントの初期化。並列数制御用Semaphoreとリトライ設定を構成する。
 
 ```python
 AsyncAPIClient(
@@ -606,40 +669,38 @@ AsyncAPIClient(
 )
 ```
 
-
 | パラメータ          | 型  | デフォルト | 説明                    |
 | ------------------- | --- | ---------- | ----------------------- |
-| `api_key`           | str | -          | Google API Key          |
+| `api_key`           | str | -          | OpenAI API Key          |
 | `max_workers`       | int | 8          | 並列数（Semaphore上限） |
 | `max_retries`       | int | 3          | リトライ回数            |
 | `max_output_tokens` | int | 8192       | 出力トークン制限        |
 
-
-| 項目        | 内容                                                  |
-| ----------- | ----------------------------------------------------- |
-| **Input**   | `api_key: str`, `max_workers: int`                    |
-| **Process** | genai.Client初期化、Semaphore作成、統計カウンタ初期化 |
-| **Output**  | AsyncAPIClientインスタンス                            |
+| 項目        | 内容                                                     |
+| ----------- | -------------------------------------------------------- |
+| **Input**   | `api_key: str`, `max_workers: int`                       |
+| **Process** | OpenAIクライアント初期化、Semaphore作成、統計カウンタ初期化 |
+| **Output**  | AsyncAPIClientインスタンス                               |
 
 #### メソッド: `generate_content`
 
-**概要**: Semaphoreで並列数を制御しながらGemini API呼び出し。不完全JSONの検出とリトライ機能を含む。
+**概要**: Semaphoreで並列数を制御しながらOpenAI API呼び出し。出力切断（finish_reason=length）の検出とリトライ機能を含む。
 
 ```python
 async def generate_content(
     model: str,
     contents: str,
     response_schema: Type[BaseModel],
-    task_id: Optional[str] = None
+    task_id: Optional[str] = None,
+    system: Optional[str] = None
 ) -> Optional[str]
 ```
 
-
 | 項目        | 内容                                                                                                                                                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**   | `model: str`, `contents: str`, `response_schema: Type[BaseModel]`                                                                                                                                                             |
-| **Process** | 1. Semaphore取得<br>2. `asyncio.to_thread()`で同期API→非同期実行<br>3. レスポンス切断チェック（finish_reason）<br>4. JSON完全性チェック<br>5. 失敗時は指数バックオフでリトライ（最大3回）<br>6. レート制限エラー時は30秒待機 |
-| **Output**  | `Optional[str]`: JSONレスポンス文字列、全リトライ失敗時はNone                                                                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `model: str`, `contents: str`, `response_schema: Type[BaseModel]`, `system: Optional[str]`（システムプロンプト）                                                                                                              |
+| **Process** | 1. Semaphore取得<br>2. `asyncio.to_thread()`で同期API→非同期実行（`beta.chat.completions.parse`）<br>3. 出力切断チェック（finish_reason=length）<br>4. トークン使用量集計<br>5. 失敗時は指数バックオフでリトライ（最大3回） |
+| **Output**  | `Optional[str]`: JSONレスポンス文字列（Pydanticとして解析可能）、全リトライ失敗時はNone                                                                                                                                       |
 
 ---
 
@@ -658,7 +719,6 @@ CheckpointManager(
 )
 ```
 
-
 | 項目        | 内容                                                       |
 | ----------- | ---------------------------------------------------------- |
 | **Input**   | `checkpoint_dir: str`, `job_id: Optional[str]`             |
@@ -672,7 +732,6 @@ CheckpointManager(
 ```python
 def save(step_name: str, data: List[str], metadata: Optional[dict] = None) -> str
 ```
-
 
 | 項目        | 内容                                                                                                                            |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -688,7 +747,6 @@ def save(step_name: str, data: List[str], metadata: Optional[dict] = None) -> st
 def get_resume_point() -> tuple[Optional[str], Optional[List[str]]]
 ```
 
-
 | 項目        | 内容                                                                            |
 | ----------- | ------------------------------------------------------------------------------- |
 | **Input**   | なし（内部ステートから判定）                                                    |
@@ -699,7 +757,7 @@ def get_resume_point() -> tuple[Optional[str], Optional[List[str]]]
 
 ### 4.6 run_registration()（make_qa_register_qdrant.py）
 
-**概要**: Q/AペアCSVをQdrantに登録する。Embedding生成→コレクション作成→バッチアップサート。
+**概要**: Q/AペアCSVをQdrantに登録する。Embedding生成→コレクション作成→バッチアップサート。ベクトル化対象は **question のみ**（answer を含めるとQ+A合体ベクトルとなり質問クエリでの類似度が低下するため。answer はペイロードに保持）。
 
 ```python
 def run_registration(
@@ -712,28 +770,26 @@ def run_registration(
 ) -> bool
 ```
 
+| パラメータ        | 型   | デフォルト  | 説明                                 |
+| ----------------- | ---- | ----------- | ------------------------------------ |
+| `csv_path`        | str  | -           | Q/AペアCSVのパス                     |
+| `collection_name` | str  | -           | Qdrantコレクション名                 |
+| `recreate`        | bool | -           | コレクションを再作成するか           |
+| `batch_size`      | int  | -           | Embeddingバッチサイズ                |
+| `provider`        | str  | -           | Embeddingプロバイダー（既定 openai） |
+| `ui_output_dir`   | str  | "qa_output" | UI用正規化CSVの出力先                |
 
-| パラメータ        | 型   | デフォルト  | 説明                       |
-| ----------------- | ---- | ----------- | -------------------------- |
-| `csv_path`        | str  | -           | Q/AペアCSVのパス           |
-| `collection_name` | str  | -           | Qdrantコレクション名       |
-| `recreate`        | bool | -           | コレクションを再作成するか |
-| `batch_size`      | int  | -           | Embeddingバッチサイズ      |
-| `provider`        | str  | -           | Embeddingプロバイダー      |
-| `ui_output_dir`   | str  | "qa_output" | UI用正規化CSVの出力先      |
-
-
-| 項目        | 内容                                                                                                                                                                                                                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Input**   | `csv_path: str`, `collection_name: str`                                                                                                                                                                                                                      |
-| **Process** | 1. CSV読み込み、question+answerを結合してベクトル化対象テキスト作成<br>2. Qdrantクライアント接続、コレクション作成/再作成<br>3. バッチ処理: `embed_texts_for_qdrant()` → `build_points_for_qdrant()` → `upsert_points_to_qdrant()`<br>4. UI用正規化CSV出力 |
-| **Output**  | `bool`: 成功時True、失敗時False                                                                                                                                                                                                                              |
+| 項目        | 内容                                                                                                                                                                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `csv_path: str`, `collection_name: str`                                                                                                                                                                                                                              |
+| **Process** | 1. CSV読み込み、question カラムをベクトル化対象テキストに設定（answer はペイロード保持）<br>2. Qdrantクライアント接続、コレクション作成/再作成<br>3. バッチ処理: `embed_texts_for_qdrant()`（OpenAI Embedding） → `build_points_for_qdrant()` → `upsert_points_to_qdrant()`<br>4. source を正規化ファイル名で登録、UI用正規化CSV出力 |
+| **Output**  | `bool`: 成功時True、失敗時False                                                                                                                                                                                                                                      |
 
 ---
 
 ### 4.7 QAPipeline クラス（qa_generation/pipeline.py）
 
-チャンク済みCSVからQ/Aペアを生成するパイプライン制御クラス。
+チャンク済みCSVからQ/Aペアを生成するパイプライン制御クラス。Q/A生成は SmartQAGenerator（構造化出力1回/チャンク）に一本化されている。
 
 #### メソッド: `run`
 
@@ -746,32 +802,30 @@ def run(
     concurrency: int = 8,
     batch_chunks: int = 3,
     analyze_coverage: bool = True,
-    coverage_threshold: Optional[float] = None,
-    use_smart_generation: bool = True
+    coverage_threshold: Optional[float] = None
 ) -> Dict
 ```
 
-
-| パラメータ             | 型   | デフォルト | 説明                         |
-| ---------------------- | ---- | ---------- | ---------------------------- |
-| `use_celery`           | bool | False      | Celery並列処理を使用するか   |
-| `concurrency`          | int  | 8          | 並列タスク数                 |
-| `batch_chunks`         | int  | 3          | 1回のAPIで処理するチャンク数 |
-| `analyze_coverage`     | bool | True       | カバレージ分析を実行するか   |
-| `use_smart_generation` | bool | True       | スマートQ/A生成を使用するか  |
-
+| パラメータ           | 型              | デフォルト | 説明                                                   |
+| -------------------- | --------------- | ---------- | ------------------------------------------------------ |
+| `use_celery`         | bool            | False      | Celery並列処理を使用するか                             |
+| `celery_workers`     | int             | 1          | Celeryワーカープロセス数チェック用                     |
+| `concurrency`        | int             | 8          | 並列タスク数                                           |
+| `batch_chunks`       | int             | 3          | （非推奨・未使用）1チャンク=1タスクで処理される        |
+| `analyze_coverage`   | bool            | True       | カバレージ分析を実行するか                             |
+| `coverage_threshold` | Optional[float] | None       | カバレージ判定の類似度閾値                             |
 
 | 項目        | 内容                                                                                                                                                                                                                         |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Input**   | チャンク済みCSVファイル（コンストラクタで指定）                                                                                                                                                                              |
-| **Process** | 1.`load_data()` でCSV/データセット読み込み<br>2. `_load_chunks_from_csv()` でチャンクリスト変換<br>3. `generate_qa()` でQ/Aペア生成（同期/Celery）<br>4. `evaluate_coverage()` でカバレージ分析<br>5. `save()` で結果CSV出力 |
+| **Process** | 1.`load_data()` でCSV/データセット読み込み<br>2. `_load_chunks_from_csv()` でチャンクリスト変換<br>3. `generate_qa()` でQ/Aペア生成（同期/Celery、進捗JSONによる中断復旧対応）<br>4. `evaluate_coverage()` でカバレージ分析<br>5. `save()` で結果CSV出力 |
 | **Output**  | `Dict`: `{saved_files, qa_count, coverage_results, success}`                                                                                                                                                                 |
 
 **戻り値例**:
 
 ```python
 {
-    "saved_files": {"qa_csv": "qa_output/pipeline/qa_pairs_20260216.csv"},
+    "saved_files": {"qa_csv": "qa_output/pipeline/qa_pairs_20260710.csv"},
     "qa_count": 150,
     "coverage_results": {"coverage_rate": 0.85, "covered_chunks": 42, "total_chunks": 50},
     "success": True
@@ -780,79 +834,89 @@ def run(
 
 ---
 
-### 4.8 combine_rows_to_chunks()（make_qa_register_qdrant.py）
+### 4.8 SmartQAGenerator クラス（qa_generation/smart_qa_generator.py）
 
-**概要**: CSVの複数行を結合してチャンクCSVを作成する。
+**概要**: コンテンツを考慮したインテリジェントQ/A生成クラス。OpenAI Structured Outputs（`generate_structured` / `beta.chat.completions.parse`）による構造化出力1回でチャンク分析とQ/A生成を統合実行し、チャンクごとに適切なQ/A数（0〜5個）を動的決定する。
 
 ```python
-def combine_rows_to_chunks(
-    df: pd.DataFrame,
-    text_column: str,
-    block_size: int,
-    output_dir: str
-) -> str
+SmartQAGenerator(model: str = "gpt-5-mini", api_key: Optional[str] = None)
 ```
 
+#### メソッド: `process_chunk`
 
-| 項目        | 内容                                                                                                                                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**   | `df: pd.DataFrame`, `text_column: str`, `block_size: int`                                                                           |
-| **Process** | 1. block_size行ごとにテキストを結合<br>2. 空行フィルタリング<br>3. チャンクCSV出力（chunk_id, text, start_row, end_row, row_count） |
-| **Output**  | `str`: 作成されたチャンクCSVのパス                                                                                                  |
+```python
+def process_chunk(chunk_text: str) -> Dict
+```
+
+| 項目        | 内容                                                                                                                                                          |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `chunk_text: str`（チャンク本文）                                                                                                                             |
+| **Process** | 1. `analyze_and_generate()` で構造化出力1回のLLM呼び出し（`create_llm_client("openai")` 経由）<br>2. `SmartQAResult` スキーマで qa_count・key_topics・importance_score・qa_pairs を取得 |
+| **Output**  | `Dict`: `{qa_pairs: [{question, answer, topic}, ...], analysis: {...}}`                                                                                       |
 
 ---
 
 ## 5. 統合アプリ agent_rag.py
 
-### 5.1 6画面構成
+### 5.1 画面構成（7画面）
 
-統合アプリは以下の6つの画面で構成されています。
+統合アプリ `agent_rag.py`（起動: `uv run streamlit run agent_rag.py --server.port 8501`）は以下の7画面で構成されています。
 
+| # | 画面名                          | ページ関数                       | 機能                                             |
+| - | ------------------------------- | -------------------------------- | ------------------------------------------------ |
+| 1 | **説明**                        | `show_system_explanation_page()` | プロジェクト概要・ドキュメント確認               |
+| 2 | **Qdrant検索**                  | `show_qdrant_search_page()`      | 質問入力→類似Q/A検索→AI応答生成                |
+| 3 | **Agent(ReAct+Reflection)**     | `show_agent_chat_page()`         | ReAct+Reflectionエージェントチャット             |
+| 4 | **自律型Agent(Plan+Executor)**  | `show_grace_chat_page()`         | GRACE自律エージェント（Plan+Executor）           |
+| 5 | **未回答ログ**                  | `show_log_viewer_page()`         | 未回答質問ログの閲覧・分析                       |
+| 6 | **RAGデータ作成**               | `show_rag_data_creation_page()`  | RAGデータ作成手順・関連ドキュメントの表示        |
+| 7 | **QdrantのCRUD**                | `show_qdrant_crud_page()`        | Qdrant CRUD操作の説明                            |
 
-| # | 画面名          | 機能             | 主な操作                          |
-| - | --------------- | ---------------- | --------------------------------- |
-| 1 | **説明**        | プロジェクト概要 | ドキュメント確認                  |
-| 2 | **RAGデータDL** | データセット取得 | cc_news, livedoor等のダウンロード |
-| 3 | **Q/A生成**     | Q/Aペア生成      | LLM生成、Celery並列処理           |
-| 4 | **Qdrant登録**  | ベクトルDB登録   | CSV→Embedding→登録              |
-| 5 | **Show-Qdrant** | コレクション表示 | データ確認、統計情報              |
-| 6 | **Qdrant検索**  | 類似度検索       | 質問入力→検索→AI応答            |
+また、RAGデータ作成用の操作UI（RAGツール）は `ui/app.py`（起動: `streamlit run ui/app.py`）が提供し、
+「説明 / RAGデータダウンロード / Q/A生成 / Qdrant登録 / Show-Qdrant / Qdrant検索」の6画面
+（`ui/pages/download_page.py`, `qa_generation_page.py`, `qdrant_registration_page.py`, `qdrant_show_page.py`, `qdrant_search_page.py`）で構成される。
 
-### 5.2 画面フロー
+### 5.2 画面フロー（RAGデータ作成の流れ）
 
 ```mermaid
 flowchart LR
     S1["説明"] --> S2["RAGデータDL"] --> S3["Q/A生成"] --> S4["Qdrant登録"] --> S6["Qdrant検索"]
-    S3 --> S5["Show-Qdrant<br/>データ確認"]
+    S4 --> S5["Show-Qdrant<br/>データ確認"]
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class S1,S2,S3,S4,S5,S6 default
 ```
 
 ### 5.3 各画面の概要
 
-#### 画面1: 説明（About）
+#### 説明（Explanation）
 
 プロジェクトの概要とドキュメントへのリンクを表示。
 
-#### 画面2: RAGデータDL
+#### RAGデータダウンロード（ui/app.py）
 
 Hugging Faceからデータセットをダウンロード・前処理。対応データセット: cc_news, livedoor, wikipedia_ja, fineweb_edu_ja 等。
 
-#### 画面3: Q/A生成
+#### Q/A生成（ui/app.py）
 
-チャンク分割 → LLMによるQ/Aペア生成。同期処理 / Celery並列処理を選択可能。カバレージ分析オプション付き。
+チャンク済みCSV → SmartQAGeneratorによるQ/Aペア生成。同期処理 / Celery並列処理を選択可能。カバレージ分析オプション付き。
 
-#### 画面4: Qdrant登録
+#### Qdrant登録（ui/app.py）
 
-CSVファイルからQdrantへベクトルデータを登録。Gemini Embedding生成（gemini-embedding-001, 3072次元）。
+CSVファイルからQdrantへベクトルデータを登録。OpenAI Embedding生成（`text-embedding-3-large`, 3072次元）。
 
-#### 画面5: Show-Qdrant
+#### Show-Qdrant（ui/app.py）
 
 登録済みコレクションの確認・統計表示。
 
-#### 画面6: Qdrant検索
+#### Qdrant検索
 
-質問を入力 → 類似Q/A検索 → AI応答生成。
+質問を入力 → コレクション選択（埋め込みモデル・次元数を自動推定） → 類似Q/A検索（Dense/Hybrid） → AI応答生成。
 
-**詳細な操作方法**: [doc/02_rag.md](doc/02_rag.md)
+#### Agent / GRACE チャット
+
+- ReAct+Reflection: [readme_react_reflection.md](readme_react_reflection.md)
+- GRACE（Plan+Executor）: [readme_autonomous_agent.md](readme_autonomous_agent.md)
 
 ---
 
@@ -860,63 +924,67 @@ CSVファイルからQdrantへベクトルデータを登録。Gemini Embedding�
 
 ### 6.1 前提条件
 
-- Python 3.10以上
+- Python 3.10以上（uv推奨）
 - Docker / Docker Compose
-- Google API Key（Gemini API）
+- OpenAI API Key（`OPENAI_API_KEY`）
 
 ### 6.2 インストール
 
 ```bash
 # リポジトリのクローン
 git clone <repository-url>
-cd openai_rag_qa_jp
+cd openai_grace_agent
 
-# 依存パッケージのインストール
-pip install -r requirements.txt
+# 依存パッケージのインストール（uv推奨）
+uv venv
+uv pip install -r requirements.txt
 
 # 環境変数の設定
 cp .env.example .env
-# .envにGOOGLE_API_KEYを設定
+# .envにOPENAI_API_KEYを設定
 ```
 
 ### 6.3 サービス起動
 
 ```bash
 # Qdrant + Redis の起動
-docker-compose -f docker-compose/docker-compose.yml up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 
 # Celeryワーカー起動（並列処理を使う場合）
 ./start_celery.sh restart -c 8 --flower
 
 # 統合アプリの起動
-streamlit run agent_rag.py
+uv run streamlit run agent_rag.py --server.port 8501
 ```
 
 ### 6.4 CLIでの実行（2段階パイプライン）
 
 ```bash
-# Step 1: チャンク分割
+# Step 1: チャンク分割（出力は固定ファイル名 <name>_chunks.csv）
 python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/cc_news_1per.csv \
-  --output chunks_output \
-  --model gemini-3-flash-preview \
+  --output output_chunked \
+  --model gpt-5-mini \
   --workers 8 \
   --block-size 500
 
 # Step 2: Q/A生成 + Qdrant登録
 python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file chunks_output/cc_news_1per_chunks_YYYYMMDD_HHMMSS.csv \
+  --input-file output_chunked/cc_news_1per_chunks.csv \
   --collection cc_news_1per \
   --use-celery \
   --concurrency 8 \
   --recreate
 ```
 
+> 出力ファイル名は既定で固定名（例: `cc_news_1per_chunks.csv`）。日時サフィックスが必要な場合のみ
+> `--timestamp` を指定する（例: `cc_news_1per_chunks_20260505_004819.csv`）。
+
 ### 6.5 動作確認
 
 ブラウザで http://localhost:8501 を開き、統合アプリが表示されることを確認。
 
-**詳細な環境構築手順**: [doc/01_install.md](doc/01_install.md)
+**詳細な操作手順**: [readme_usage_tools.md](readme_usage_tools.md) / **環境構築**: [readme_make_env.md](readme_make_env.md)
 
 ---
 
@@ -928,25 +996,25 @@ python qa_qdrant/make_qa_register_qdrant.py \
 # Python 3.10以上が必要
 python --version
 
-# 仮想環境の作成（推奨）
-python -m venv venv
-source venv/bin/activate  # Mac/Linux
+# uv による仮想環境の作成（推奨）
+uv venv
+source .venv/bin/activate  # Mac/Linux
 ```
 
 ### 7.2 依存パッケージ
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # Celery関連（並列処理を使う場合）
-pip install "celery[redis]" kombu flower
+uv pip install "celery[redis]" kombu flower
 ```
 
 ### 7.3 Docker（Qdrant + Redis）
 
 ```bash
 # docker-compose.ymlの場所
-docker-compose -f docker-compose/docker-compose.yml up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 
 # 起動確認
 curl http://localhost:6333/collections  # Qdrant
@@ -958,36 +1026,44 @@ redis-cli ping                           # Redis
 `.env`ファイルを作成:
 
 ```env
-GOOGLE_API_KEY=AIzaXXXXXXXXXXXXXXXXXXXXX
+OPENAI_API_KEY=sk-XXXXXXXXXXXXXXXXXXXXX
 QDRANT_URL=http://localhost:6333
 REDIS_URL=redis://localhost:6379/0
 ```
 
-**詳細な環境構築手順**: [doc/01_install.md](doc/01_install.md)
+**詳細な環境構築手順**: [readme_make_env.md](readme_make_env.md)
 
 ---
 
 ## 8. 設定・定数
 
-### 8.1 GeminiConfig
+### 8.1 LLM・Embedding設定（config.py: GeminiConfig ※クラス名は後方互換）
 
-Gemini API関連の設定。
+OpenAI API関連の既定値。クラス名 `GeminiConfig` は移行前の名残（後方互換のため維持）で、**中身はOpenAI設定**。
 
 ```python
-class GeminiConfig:
-    DEFAULT_MODEL = "gemini-3-flash-preview"
-    EMBEDDING_MODEL = "gemini-embedding-001"
-    EMBEDDING_DIMS = 3072  # MRL: 768/1536/3072
-    DEFAULT_THINKING_LEVEL = "low"
-    DEFAULT_TEMPERATURE = 1.0
+class GeminiConfig:  # クラス名は後方互換。中身は OpenAI 設定
+    DEFAULT_MODEL = "gpt-5-mini"
+    EMBEDDING_MODEL = "text-embedding-3-large"
+    EMBEDDING_DIMS = 3072
 ```
 
+| キー              | デフォルト値             | 説明                                    |
+| ----------------- | ------------------------ | --------------------------------------- |
+| `DEFAULT_MODEL`   | "gpt-5-mini"             | デフォルトLLMモデル（OpenAI GPT）       |
+| `EMBEDDING_MODEL` | "text-embedding-3-large" | Embeddingモデル（OpenAI Embedding）     |
+| `EMBEDDING_DIMS`  | 3072                     | Embedding次元数                         |
 
-| キー              | デフォルト値             | 説明                                      |
-| ----------------- | ------------------------ | ----------------------------------------- |
-| `DEFAULT_MODEL`   | "gemini-3-flash-preview" | デフォルトLLMモデル                       |
-| `EMBEDDING_MODEL` | "gemini-embedding-001"   | Embeddingモデル                           |
-| `EMBEDDING_DIMS`  | 3072                     | Embedding次元数（MRL対応: 768/1536/3072） |
+`AVAILABLE_MODELS` には `gpt-5-mini`（既定・推奨）/ `gpt-4o-mini` / `gpt-4o` / `gpt-4.1` / `gpt-4.1-mini` / `o1-mini` が定義されている。
+
+また、GRACE側の Embedding 設定は `grace/config.py` の `EmbeddingConfig` に定義されている:
+
+```python
+class EmbeddingConfig(BaseModel):
+    provider: str = "openai"
+    model: str = "text-embedding-3-large"
+    dimensions: int = 3072
+```
 
 ### 8.2 QdrantConfig
 
@@ -998,14 +1074,23 @@ class QdrantConfig:
     HOST = "localhost"
     PORT = 6333
     URL = "http://localhost:6333"
-    DEFAULT_VECTOR_SIZE = 3072  # gemini-embedding-001
-    DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
+    DEFAULT_VECTOR_SIZE = 3072  # text-embedding-3-large
+    DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 ```
 
-### 8.3 CeleryConfig
+### 8.3 LLMProviderConfig
+
+プロバイダー既定値（LLM・Embeddingとも `"openai"`）。
+
+| キー                         | デフォルト値 | 説明                                       |
+| ---------------------------- | ------------ | ------------------------------------------ |
+| `DEFAULT_LLM_PROVIDER`       | "openai"     | LLMプロバイダー既定値                      |
+| `DEFAULT_EMBEDDING_PROVIDER` | "openai"     | Embeddingプロバイダー既定値                |
+| `get_embedding_dims()`       | 3072         | プロバイダー別Embedding次元数を返す        |
+
+### 8.4 CeleryConfig
 
 Celery並列処理設定。
-
 
 | キー                 | デフォルト値             | 説明                     |
 | -------------------- | ------------------------ | ------------------------ |
@@ -1013,16 +1098,22 @@ Celery並列処理設定。
 | `WORKER_CONCURRENCY` | 8                        | デフォルトワーカー並列数 |
 | `TASK_TIME_LIMIT`    | 300                      | タスクタイムアウト（秒） |
 
-### 8.4 チャンク処理プロンプト
+### 8.5 チャンク処理プロンプト・定数
 
 3段階チャンク処理で使用するプロンプト（`chunking/prompts.py`）:
-
 
 | プロンプト                    | 用途                                              |
 | ----------------------------- | ------------------------------------------------- |
 | `PARAGRAPH_SEPARATION_PROMPT` | Step1: 空行ベースの段落分割ルール                 |
 | `SEMANTIC_CHUNKING_PROMPT`    | Step2: 意味のまとまり（トピック）ベースの再構成   |
-| `CONTINUITY_CHECK_PROMPT`     | Step3: 隣接チャンクの文脈連続性判定（True/False） |
+| `CONTINUITY_CHECK_PROMPT`     | Step3: 隣接チャンクの文脈連続性判定（LLMモード）  |
+
+チャンクサイズ関連定数（`chunking/csv_text_to_chunks_text_csv.py`）:
+
+| 定数                          | 値   | 説明                                                          |
+| ----------------------------- | ---- | ------------------------------------------------------------- |
+| `MAX_CHUNK_TOKENS`            | 512  | チャンク最大トークン数（Step3結合上限＋強制分割上限）         |
+| `EMBEDDING_INPUT_TOKEN_LIMIT` | 2048 | Embedding入力上限の保守的ガード値（text-embedding-3-large用） |
 
 ---
 
@@ -1030,23 +1121,21 @@ Celery並列処理設定。
 
 ### 9.1 基本ワークフロー（CLI 2段階パイプライン）
 
-```python
-# 使用例: CLIでのチャンク分割 → Q/A生成 → Qdrant登録
-
+```bash
 # Step 1: チャンク分割
-# python -m chunking.csv_text_to_chunks_text_csv \
-#   --input-file OUTPUT/wikipedia_ja_1per.csv \
-#   --output chunks_output \
-#   --model gemini-3-flash-preview \
-#   --workers 8
+python -m chunking.csv_text_to_chunks_text_csv \
+  --input-file OUTPUT/wikipedia_ja_1per.csv \
+  --output output_chunked \
+  --model gpt-5-mini \
+  --workers 8
 
 # Step 2: Q/A生成 + Qdrant登録
-# python qa_qdrant/make_qa_register_qdrant.py \
-#   --input-file chunks_output/wikipedia_ja_1per_chunks.csv \
-#   --collection wikipedia_ja_1per \
-#   --use-celery \
-#   --concurrency 8 \
-#   --recreate
+python qa_qdrant/make_qa_register_qdrant.py \
+  --input-file output_chunked/wikipedia_ja_1per_chunks.csv \
+  --collection wikipedia_ja_1per \
+  --use-celery \
+  --concurrency 8 \
+  --recreate
 ```
 
 ### 9.2 Pythonからの直接利用
@@ -1054,51 +1143,50 @@ Celery並列処理設定。
 ```python
 # 使用例: チャンク分割をPythonから実行
 import asyncio
-from chunking import chunks_all_async, load_text_from_csv
+from chunking.csv_text_to_chunks_text_csv import chunks_all_async, load_documents_from_csv
 
-# CSVからテキスト読み込み
-text = load_text_from_csv("OUTPUT/cc_news_1per.csv")
+# CSVから文書リスト読み込み（1行=1文書、文書境界を保持）
+documents = load_documents_from_csv("OUTPUT/cc_news_1per.csv")
 
 # チャンク分割
 chunks = asyncio.run(chunks_all_async(
-    text=text,
-    model="gemini-3-flash-preview",
+    documents=documents,
+    model="gpt-5-mini",
     max_workers=8,
-    output_file="chunks_output/result.csv"
+    output_file="output_chunked/cc_news_1per_chunks.csv"
 ))
 print(f"生成チャンク数: {len(chunks)}")
 ```
 
-### 9.3 応用ワークフロー（テキストファイルからの一括処理）
+### 9.3 Q/A生成のみ（Qdrant登録なし）
 
 ```bash
-# テキストファイルから直接Q/A生成+登録
-python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file data/document.txt \
-  --collection my_collection \
+# チャンク済みCSVからQ/A生成のみ実行
+python qa_qdrant/make_qa.py \
+  --input-file output_chunked/cc_news_1per_chunks.csv \
   --use-celery \
-  --concurrency 8 \
-  --recreate
+  -c 8 \
+  --analyze-coverage
 ```
 
-### 9.4 CSV行結合オプション
+### 9.4 Qdrant登録のみ（生成済みQ/AペアCSV）
 
 ```bash
-# CSV行を結合してチャンク化（大量の短い行がある場合）
-python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file OUTPUT/cc_news_5per.csv \
-  --collection cc_news_5per \
-  --use-celery \
-  --text-column text \
-  --combine-rows \
-  --block-size 400 \
-  --recreate
+# Q/AペアCSVをQdrantに登録（生成はスキップ）
+python qa_qdrant/register_to_qdrant.py \
+  --input-file qa_output/pipeline/qa_pairs_cc_news_1per.csv \
+  --collection cc_news_1per \
+  --recreate \
+  --batch-size 100
 ```
+
+> **Note**: テキストファイル（.txt）を `make_qa_register_qdrant.py` に直接渡すことはできない。
+> 先に `chunking/csv_text_to_chunks_text_csv.py` でチャンク化し、生成された
+> `output_chunked/*_chunks.csv` を `--input-file` に指定する。
 
 ---
 
 ## 10. 対応データセット
-
 
 | データセット   | 言語   | 内容                             | ソース                                           |
 | -------------- | ------ | -------------------------------- | ------------------------------------------------ |
@@ -1113,61 +1201,70 @@ python qa_qdrant/make_qa_register_qdrant.py \
 ## 11. ディレクトリ構造
 
 ```
-openai_rag_qa_jp/
+openai_grace_agent/
 ├── agent_rag.py                      # 統合Streamlitアプリ（メインエントリ）
 ├── config.py                         # 全体設定管理
 │
 ├── chunking/                         # ★ チャンク分割パッケージ
 │   ├── __init__.py                   # パッケージエクスポート
 │   ├── csv_text_to_chunks_text_csv.py  # ★ メイン: 3段階チャンク分割
-│   ├── async_api_client.py           # Gemini API非同期クライアント
+│   ├── async_api_client.py           # OpenAI API非同期クライアント
 │   ├── checkpoint_manager.py         # チェックポイント管理
 │   ├── models.py                     # Pydanticモデル定義
 │   ├── prompts.py                    # 3種のプロンプト定義
 │   ├── regex_string.py               # テキスト分割ユーティリティ
-│   └── utils.py                      # ユーティリティ関数
+│   ├── utils.py                      # ユーティリティ関数
+│   └── doc/                          # モジュールドキュメント
 │
 ├── qa_qdrant/                        # ★ Q/A生成・Qdrant登録
-│   └── make_qa_register_qdrant.py    # ★ メイン: 統合パイプライン
+│   ├── make_qa_register_qdrant.py    # ★ メイン: 統合パイプライン（生成+登録）
+│   ├── make_qa.py                    # Q/A生成のみのCLI
+│   ├── register_to_qdrant.py         # Qdrant登録のみのCLI
+│   └── doc/                          # モジュールドキュメント
 │
 ├── qa_generation/                    # Q/A生成パッケージ
 │   ├── pipeline.py                   # QAPipelineクラス
-│   ├── smart_qa_generator.py         # SmartQAGenerator
+│   ├── smart_qa_generator.py         # SmartQAGenerator（構造化出力1回）
+│   ├── semantic.py                   # SemanticCoverage（意味的カバレージ）
 │   ├── evaluation.py                 # カバレージ分析
-│   └── data_io.py                    # データ入出力
+│   ├── models.py                     # Pydanticスキーマ
+│   ├── data_io.py                    # データ入出力
+│   └── doc/                          # モジュールドキュメント
 │
 ├── services/                         # サービス層
-│   └── qdrant_service.py             # Qdrant操作サービス
+│   ├── qdrant_service.py             # Qdrant操作サービス
+│   ├── qa_service.py                 # UI向けQ/A生成サービス
+│   ├── dataset_service.py            # データセット管理
+│   └── ...                           # agent/cache/config/file/json/log/token 各サービス
 │
 ├── helper/                           # ヘルパー
-│   ├── helper_embedding.py           # Embedding抽象化レイヤー
+│   ├── helper_embedding.py           # Embedding抽象化レイヤー（create_embedding_client）
 │   ├── helper_embedding_sparse.py    # Sparse Embedding
-│   └── helper_llm.py                 # LLMクライアント
+│   ├── helper_llm.py                 # LLMクライアント（create_llm_client）
+│   └── helper_rag_qa.py              # RAG Q/A用LLMクライアント
+│
+├── grace/                            # GRACE自律エージェント（Plan+Executor）
+│   └── config.py                     # EmbeddingConfig ほか
 │
 ├── qdrant_client_wrapper.py          # Qdrantクライアントラッパー
 ├── celery_tasks.py                   # Celeryタスク定義
 │
 ├── ui/                               # UIコンポーネント
-│   └── pages/                        # 各画面のページ
+│   ├── app.py                        # RAGツール（データ作成系6画面）
+│   └── pages/                        # 各画面のページ関数
 │
-├── doc/                              # ドキュメント
-│   ├── 01_install.md
-│   ├── 02_rag.md
-│   ├── 03_chunk.md
-│   ├── 04_prompt.md
-│   ├── 05_qa_pair.md
-│   ├── 06_embedding_qdrant.md
-│   └── 07_qdrant_integration_add.md
-│
-├── docker-compose/                   # Docker設定
+├── docs/                             # 設計・移植ドキュメント
+├── docker-compose/                   # Docker設定（Qdrant + Redis）
 │   └── docker-compose.yml
 │
-├── chunks_output/                    # チャンク分割出力
+├── output_chunked/                   # チャンク分割出力（固定ファイル名）
 ├── qa_output/                        # 生成されたQ/Aデータ
 ├── OUTPUT/                           # 前処理済みデータ
 ├── checkpoints/                      # チェックポイント
+├── tests/                            # pytestスイート
 │
 ├── requirements.txt                  # 依存パッケージ
+├── pyproject.toml                    # プロジェクト設定（uv）
 ├── .env                              # 環境変数（gitignore）
 ├── start_celery.sh                   # Celeryワーカー起動スクリプト
 └── CLAUDE.md                         # Claude Code用ガイド
@@ -1181,31 +1278,34 @@ openai_rag_qa_jp/
 
 ```mermaid
 flowchart TB
-    README["README_RAG.md<br/>プロジェクト概要"]
+    README["readme_rag.md<br/>RAGパイプライン設計"]
 
-    README --> D1["doc/01_install.md<br/>環境構築"]
-    README --> D2["doc/02_rag.md<br/>統合アプリ操作"]
-    README --> D3["doc/03-07<br/>技術詳細"]
+    README --> D1["readme_make_env.md<br/>環境構築"]
+    README --> D2["readme_usage_tools.md<br/>操作手順"]
+    README --> D3["モジュール別 doc/<br/>技術詳細"]
 
-    D2 --> D3_1["03_chunk.md<br/>チャンク"]
-    D2 --> D3_2["04_prompt.md<br/>プロンプト"]
-    D2 --> D3_3["05_qa_pair.md<br/>Q/A生成"]
-    D2 --> D3_4["06_embedding_qdrant.md<br/>Embedding"]
-    D2 --> D3_5["07_qdrant_integration_add.md<br/>検索・統合"]
+    D3 --> D3_1["chunking/doc<br/>チャンク分割"]
+    D3 --> D3_2["qa_generation/doc<br/>Q/A生成"]
+    D3 --> D3_3["qa_qdrant/doc<br/>生成+登録CLI"]
+    D3 --> D3_4["services/doc<br/>Qdrantサービス"]
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class README,D1,D2,D3,D3_1,D3_2,D3_3,D3_4 default
 ```
 
 ### 12.2 ドキュメント概要
 
-
-| ドキュメント                                                         | 主題                     | 対象読者       |
-| -------------------------------------------------------------------- | ------------------------ | -------------- |
-| [doc/01_install.md](doc/01_install.md)                               | 環境構築ガイド           | 導入者・開発者 |
-| [doc/02_rag.md](doc/02_rag.md)                                       | 統合アプリ操作マニュアル | 利用者・開発者 |
-| [doc/03_chunk.md](doc/03_chunk.md)                                   | チャンク分割技術         | 開発者         |
-| [doc/04_prompt.md](doc/04_prompt.md)                                 | プロンプト設計           | 開発者         |
-| [doc/05_qa_pair.md](doc/05_qa_pair.md)                               | Q/Aペア生成処理          | 開発者         |
-| [doc/06_embedding_qdrant.md](doc/06_embedding_qdrant.md)             | Embedding・Qdrant登録    | 開発者         |
-| [doc/07_qdrant_integration_add.md](doc/07_qdrant_integration_add.md) | Qdrant検索・統合         | 開発者         |
+| ドキュメント                                                     | 主題                                     | 対象読者       |
+| ----------------------------------------------------------------- | ---------------------------------------- | -------------- |
+| [README.md](README.md)                                            | プロジェクト全体・GRACE自律エージェント  | 全員           |
+| [readme_make_env.md](readme_make_env.md)                          | Mac向け環境構築手順                      | 導入者・開発者 |
+| [readme_usage_tools.md](readme_usage_tools.md)                    | チャンク作成・Q&A生成・Qdrant登録の手順  | 利用者・開発者 |
+| [readme_react_reflection.md](readme_react_reflection.md)          | ReAct+Reflectionエージェント設計・実装   | 開発者         |
+| [readme_autonomous_agent.md](readme_autonomous_agent.md)          | GRACEアーキテクチャ（Plan+Executor）     | 開発者         |
+| `chunking/doc/csv_text_to_chunks_text_csv.md` ほか                | チャンク分割技術詳細                     | 開発者         |
+| `qa_generation/doc/pipeline.md` / `smart_qa_generator.md` ほか    | Q/Aペア生成処理                          | 開発者         |
+| `qa_qdrant/doc/make_qa_register_qdrant.md` ほか                   | 生成+登録CLI・Celery並列処理             | 開発者         |
+| `services/doc/qdrant_service.md`                                  | Embedding・Qdrant登録・検索              | 開発者         |
 
 ---
 
@@ -1227,6 +1327,8 @@ __all__ = [
     "chunks_all_async", "load_text_from_csv", "save_chunks_as_csv", "save_chunks_as_text",
     # Utils
     "show_paragraphs", "setup_logging", "format_time", "format_size", "estimate_api_calls",
+    # Version
+    "__version__",
 ]
 ```
 
@@ -1234,16 +1336,35 @@ __all__ = [
 
 ```python
 __all__ = [
-    # クライアント
+    # 定数
+    "QDRANT_CONFIG", "DEFAULT_EMBEDDING_MODEL", "DEFAULT_VECTOR_SIZE",
+    "COLLECTION_EMBEDDINGS", "COLLECTION_CSV_MAPPING",
+    # プロバイダー設定
+    "DEFAULT_EMBEDDING_PROVIDER", "PROVIDER_DEFAULTS", "COLLECTION_EMBEDDINGS_GEMINI",
+    # ユーティリティ
+    "batched",
+    # クライアント・ヘルスチェック
     "QdrantHealthChecker", "create_qdrant_client", "get_qdrant_client",
     # コレクション管理
-    "create_or_recreate_collection", "get_collection_stats", "get_all_collections",
-    # 埋め込み
+    "get_collection_stats", "get_all_collections", "delete_all_collections",
+    "create_or_recreate_collection",
+    # データ読み込み
+    "load_csv_for_qdrant", "build_inputs_for_embedding",
+    # 埋め込み（レガシー: OpenAI用）
+    "embed_texts", "embed_query",
+    # 埋め込み（抽象化版）
     "embed_texts_unified", "embed_query_unified",
+    "get_embedding_client", "get_cached_sparse_embedding_client",
+    "create_collection_for_provider", "get_provider_vector_size",
     # ポイント操作
     "build_points", "upsert_points",
+    # データ取得
+    "QdrantDataFetcher",
     # 検索
     "search_collection",
+    # 後方互換性エイリアス
+    "embed_texts_for_qdrant", "create_or_recreate_collection_for_qdrant",
+    "build_points_for_qdrant", "upsert_points_to_qdrant", "embed_query_for_search",
 ]
 ```
 
@@ -1251,12 +1372,12 @@ __all__ = [
 
 ## 14. 変更履歴
 
-
 | バージョン | 変更内容                                                                                                                                                                                                                      |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1.0        | 初版作成（OpenAI GPT-4o / text-embedding-3-small ベース）                                                                                                                                                                     |
 | 1.5        | Gemini API対応、SemanticCoverageクラスによるチャンク分割                                                                                                                                                                      |
-| 2.0        | フォーマット仕様書準拠で全面再構成。LLMベース3段階チャンク分割（csv_text_to_chunks_text_csv.py）導入。Gemini Embedding（gemini-embedding-001, 3072次元）に統一。make_qa_register_qdrant.py統合パイプライン追加。IPO詳細追加。 |
+| 2.0        | フォーマット仕様書準拠で全面再構成。LLMベース3段階チャンク分割（csv_text_to_chunks_text_csv.py）導入。make_qa_register_qdrant.py統合パイプライン追加。IPO詳細追加。                                                           |
+| 3.0        | OpenAI API への統一を反映（LLM: `gpt-5-mini` / Embedding: `text-embedding-3-large`, 3072次元, `OPENAI_API_KEY`）。文書境界保証（`load_documents_from_csv` / doc_id）・`continuity_mode="rule"`・`max_chunk_tokens=512`・manifest出力・固定ファイル名出力（`--timestamp`）を反映。`combine_rows_to_chunks` 削除、`make_qa.py` / `register_to_qdrant.py` 追記。agent_rag.py 7画面構成・ui/app.py（RAGツール）を反映。Mermaid黒背景規約適用。クロスリンク・ドキュメント一覧を実在ファイルに是正。 |
 
 ---
 
@@ -1267,31 +1388,31 @@ flowchart LR
     CHUNK["csv_text_to_chunks_text_csv.py"]
     MAKE_QA["make_qa_register_qdrant.py"]
 
-    subgraph GOOGLE["google-genai"]
-        GENAI_LLM[genai.Client<br/>LLM生成]
-        GENAI_EMB[Embedding API<br/>gemini-embedding-001]
+    subgraph OPENAI_LIB["openai"]
+        OPENAI_LLM["OpenAI Client<br/>gpt-5-mini<br/>Structured Outputs"]
+        OPENAI_EMB["Embeddings API<br/>text-embedding-3-large"]
     end
 
     subgraph QDRANT_LIB["qdrant-client"]
-        QC[QdrantClient]
-        QM[models.PointStruct]
+        QC["QdrantClient"]
+        QM["models.PointStruct"]
     end
 
     subgraph INTERNAL["内部モジュール"]
-        ASYNC_CLI[chunking.async_api_client]
-        CHECKPOINT[chunking.checkpoint_manager]
-        MODELS[chunking.models]
-        PROMPTS[chunking.prompts]
-        PIPELINE[qa_generation.pipeline]
-        SMART_QA[qa_generation.smart_qa_generator]
-        QDRANT_SVC[services.qdrant_service]
-        QDRANT_WRAP[qdrant_client_wrapper]
-        HELPER_EMB[helper.helper_embedding]
-        CONFIG[config]
+        ASYNC_CLI["chunking.async_api_client"]
+        CHECKPOINT["chunking.checkpoint_manager"]
+        MODELS["chunking.models"]
+        PROMPTS["chunking.prompts"]
+        PIPELINE["qa_generation.pipeline"]
+        SMART_QA["qa_generation.smart_qa_generator"]
+        QDRANT_SVC["services.qdrant_service"]
+        QDRANT_WRAP["qdrant_client_wrapper"]
+        HELPER_EMB["helper.helper_embedding"]
+        HELPER_LLM["helper.helper_llm"]
+        CONFIG["config"]
     end
 
-    CHUNK --> GENAI_LLM
-    CHUNK --> ASYNC_CLI
+    CHUNK --> ASYNC_CLI --> OPENAI_LLM
     CHUNK --> CHECKPOINT
     CHUNK --> MODELS
     CHUNK --> PROMPTS
@@ -1300,31 +1421,36 @@ flowchart LR
     MAKE_QA --> QDRANT_SVC
     MAKE_QA --> QDRANT_WRAP
 
-    PIPELINE --> SMART_QA --> GENAI_LLM
-    QDRANT_SVC --> GENAI_EMB
+    PIPELINE --> SMART_QA --> HELPER_LLM --> OPENAI_LLM
+    QDRANT_SVC --> HELPER_EMB --> OPENAI_EMB
     QDRANT_SVC --> QC
-    QDRANT_WRAP --> HELPER_EMB --> GENAI_EMB
+    QDRANT_WRAP --> HELPER_EMB
     QDRANT_WRAP --> QC
     QDRANT_WRAP --> QM
 
     PIPELINE --> CONFIG
     QDRANT_WRAP --> CONFIG
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class CHUNK,MAKE_QA,OPENAI_LLM,OPENAI_EMB,QC,QM,ASYNC_CLI,CHECKPOINT,MODELS,PROMPTS,PIPELINE,SMART_QA,QDRANT_SVC,QDRANT_WRAP,HELPER_EMB,HELPER_LLM,CONFIG default
+style OPENAI_LIB fill:#1a1a1a,stroke:#fff,color:#fff
+style QDRANT_LIB fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
 
 ## 技術スタック
 
-
-| カテゴリ       | 技術                                               |
-| -------------- | -------------------------------------------------- |
-| **言語**       | Python 3.10+                                       |
-| **LLM**        | Gemini 3 Flash / Pro（gemini-3-flash-preview）     |
-| **Embedding**  | Gemini Embedding（gemini-embedding-001, 3072次元） |
-| **ベクトルDB** | Qdrant（コサイン類似度、Hybrid Search対応）        |
-| **並列処理**   | Celery + Redis / asyncio                           |
-| **Web UI**     | Streamlit                                          |
-| **コンテナ**   | Docker / Docker Compose                            |
+| カテゴリ       | 技術                                                     |
+| -------------- | -------------------------------------------------------- |
+| **言語**       | Python 3.10+                                             |
+| **LLM**        | OpenAI GPT（gpt-5-mini）                                 |
+| **Embedding**  | OpenAI Embedding（text-embedding-3-large, 3072次元）     |
+| **ベクトルDB** | Qdrant（コサイン類似度、Hybrid Search対応）              |
+| **並列処理**   | Celery + Redis / asyncio                                 |
+| **Web UI**     | Streamlit                                                |
+| **コンテナ**   | Docker / Docker Compose                                  |
 
 ---
 
