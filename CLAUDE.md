@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> ⚠️ **旧世代リポジトリ（Streamlit 版・OpenAI）。** OpenAI の React 版後継は無い。現行の開発は下記リポジトリで行っている。
+>
+> **現行の開発は React 版で行っている。** 現行リポジトリ:
+> - `grace_v2` — Anthropic 版（FastAPI + Vite + React 18 + TypeScript）
+> - `grace_v2_local` — Ollama 版（同構成）
+>
+> 本リポジトリの Streamlit に関する記述（`streamlit run ...`・`helper_st.py`・`ui/`・
+> Streamlit DataFrame 規約など）は**このリポジトリ内のコードの説明としてのみ有効**である。
+> ユーザーの現在の開発スタックを Streamlit だと推論しないこと。
+> 新規のサンプルや提案は React（フロント）＋ FastAPI（バックエンド）を前提にする。
+
 ## ⚠️ ファイル書き込みポリシー
 
 ### GitHub ブランチ操作：全許可
